@@ -1,0 +1,30 @@
+@limbcompute3.ana
+rguess = 1600
+rrange = 100
+files_file = getenv('FILES_FILE')
+out_file = getenv('OUT_FILE')
+luninp = get_lun()
+stat = openr(luninp, files_file)
+lunout = get_lun()
+stat = openw(lunout, out_file)
+if stat ne 1 then {
+  errormess,sprintf('can''t open %s for writing.\n', out_file)
+  exit, 1
+}
+fnam = ''
+while readf(luninp, fnam) eq 1 do {
+  dataread2, x, fnam, h
+  ;ty, $data_time_tai
+  wl = fits_key(h, 'wavelnth')
+  $limbmode = 0
+  if wl gt 1000 then $limbmode = 1
+  if wl gt 2000 then $limbmode = 2
+  if wl eq 304 then $limbmode = 3
+  $sdisk_xc=fits_key(h, 'CRPIX1')
+  $sdisk_yc=fits_key(h, 'CRPIX2')
+  t_obs = fits_key(h, 'T_OBS')
+  limbcompute3, x, rguess, rrange
+  outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, wl, t_obs)
+  printf, lunout, outstr
+}
+exit, 0
