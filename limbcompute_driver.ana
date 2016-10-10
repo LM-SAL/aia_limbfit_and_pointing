@@ -11,7 +11,19 @@ if stat ne 1 then {
   errormess,sprintf('can''t open %s for writing.\n', out_file)
   exit, 1
 }
+roff = fltarr(4501)
+roff(94) = 6.0
+roff(131) = 6.25
+roff(171) = 8.0
+roff(193) = 9.0
+roff(211) = 9.5
+roff(304) = 18.0
+roff(335) = 9.5
+roff(1600) = 0.0
+roff(1700) = -1.0
+roff(4500) = -2.25
 fnam = ''
+first = 1
 while readf(luninp, fnam) eq 1 do {
   dataread2, x, fnam, h
   ;ty, $data_time_tai
@@ -23,6 +35,11 @@ while readf(luninp, fnam) eq 1 do {
   $sdisk_xc=fits_key(h, 'CRPIX1')
   $sdisk_yc=fits_key(h, 'CRPIX2')
   t_obs = fits_key(h, 'T_OBS')
+  if first eq 1 then {
+    nc = sscanf(t_obs, '%d-%d-%d', y, m, d)
+    rguess = sun_r(doy(y, m, d), y)/0.6 + roff(wl)
+    first = 0
+  }
   limbcompute3, x, rguess, rrange
   outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, wl, t_obs)
   printf, lunout, outstr
