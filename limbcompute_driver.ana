@@ -25,16 +25,16 @@ roff(4500) = -2.25
 fnam = ''
 first = 1
 while readf(luninp, fnam) eq 1 do {
-  dataread2, x, fnam, h
+  dataread2, x, fnam, hdr
   ;ty, $data_time_tai
-  wl = fits_key(h, 'wavelnth')
+  wl = fits_key(hdr, 'wavelnth')
   $limbmode = 0
   if wl gt 1000 then $limbmode = 1
   if wl gt 2000 then $limbmode = 2
   if wl eq 304 then $limbmode = 3
-  $sdisk_xc=fits_key(h, 'CRPIX1')
-  $sdisk_yc=fits_key(h, 'CRPIX2')
-  t_obs = fits_key(h, 'T_OBS')
+  $sdisk_xc=fits_key(hdr, 'CRPIX1')
+  $sdisk_yc=fits_key(hdr, 'CRPIX2')
+  t_obs = fits_key(hdr, 'T_OBS')
   if first eq 1 then {
     nc = sscanf(t_obs, '%d-%d-%d', y, m, d)
     rguess = sun_r(doy(y, m, d), y)/0.6 + roff(wl)
