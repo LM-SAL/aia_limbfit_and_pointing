@@ -35,13 +35,14 @@ while readf(luninp, fnam) eq 1 do {
   $sdisk_xc=fits_key(hdr, 'CRPIX1')
   $sdisk_yc=fits_key(hdr, 'CRPIX2')
   t_obs = fits_key(hdr, 'T_OBS')
+  nc = sscanf(t_obs, '%d-%d-%dT%d:%d:%d', y, m, d, h, m, s)
+  ut = tai_from_date(y, doy(y, m, d), h, m, s) + 220924766
   if first eq 1 then {
-    nc = sscanf(t_obs, '%d-%d-%d', y, m, d)
     rguess = sun_r(doy(y, m, d), y)/0.6 + roff(wl)
     first = 0
   }
   limbcompute3, x, rguess, rrange
-  outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, wl, t_obs)
+  outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, ut, t_obs)
   printf, lunout, outstr
 }
 exit, 0
