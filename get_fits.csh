@@ -9,5 +9,5 @@ setenv ANA_WLIB $ANA_DIR/wlib/
 setenv FILES_FILE $1
 setenv OUT_FILE $2
 cd /home/jps/git/LimbFit
-/home/jps/bin/ana limbcompute_driver.ana < /dev/null > /tmp/aialimbfit.out
+/home/jps/bin/ana limbcompute_driver.ana < /dev/null > /dev/null
 rm $FILES_FILE
