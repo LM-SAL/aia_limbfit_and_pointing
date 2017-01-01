@@ -41,8 +41,14 @@ while readf(luninp, fnam) eq 1 do {
     rguess = sun_r(doy(y, mo, d), y)/0.6 + roff(wl)
     first = 0
   }
-  limbcompute3, x, rguess, rrange
-  outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, ut, t_obs)
-  printf, lunout, outstr
+  q0 = long(fits_key(hdr, 'QUALLEV0')) and 0x80038ef0
+  q1 = long(fits_key(hdr, 'QUALITY'))  and 0x80377e80
+  missvals = fits_key(hdr, 'MISSVALS')
+  if missvals < 99 then missvals = 0
+  if q0 + q1 + missvals eq 0 then {
+    limbcompute3, x, rguess, rrange
+    outstr = sprintf('%7.2f\t%7.2f\t%7.2f\t%d\t%s', $sdisk_xc, $sdisk_yc, $sdisk_r, ut, t_obs)
+    printf, lunout, outstr
+  }
 }
 exit, 0
