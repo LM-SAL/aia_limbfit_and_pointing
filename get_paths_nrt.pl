@@ -9,8 +9,8 @@ $ENV{SGE_ROOT} = "/SGE";
 my $JSOC_MACHINE = $ENV{JSOC_MACHINE};
 my ($yr, $mon, $hr, $da, $month, $year, $outnam, $qs, $wl, $stage, @lines);
 my $show_info = "/home/jsoc/cvs/Development/JSOC/bin/$JSOC_MACHINE/show_info";
-my $path_dir = '/tmp28/jps/LimbFit/paths_nrt';
-my $stage_dir = '/tmp28/jps/LimbFit/stage_nrt';
+my $path_dir = '/tmp28/jsocprod/jps/LimbFit/paths_nrt';
+my $stage_dir = '/tmp28/jsocprod/jps/LimbFit/stage_nrt';
 my $filt = '';
 my $dur = '3h';
 my $kw = 'IMG_TYPE,ACS_MODE';
@@ -33,7 +33,7 @@ for $wl (94, 131, 171, 193, 211, 304, 335, 1600, 1700, 4500) {
   $outnam = sprintf "$outdir/$yr%2.2d%2.2d_%2.2d_%4.4d.images",
                $mon, $da, $hr, $wl;
   $qs = "aia.lev1_nrt2[$yr.$mon.${da}_$hr/$dur][?WAVELNTH=$wl?]$filt";
-  @lines = `$show_info -q -P key=$kw seg=image $qs`;
+  @lines = `$show_info -q -P key=$kw seg=image_lev1 $qs`;
   save_paths($outnam, @lines);
   copy $outnam, $stage_dir if $stage;
 }
