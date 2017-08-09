@@ -7,11 +7,11 @@ $ENV{SUMSERVER} = "k1";
 $ENV{SGE_ROOT} = "/SGE";
 my $JSOC_MACHINE = $ENV{JSOC_MACHINE};
 my ($yr, $mon, $hr, $da, $dur, $inpnam, $outnam, @files, $n, $wl);
-my $outroot = '/tmp28/jps/LimbFit/fits';
-my $path_dir = '/tmp28/jps/LimbFit/paths';
-my $stage_dir = '/tmp28/jps/LimbFit/stage';
+my $outroot = '/surge28/jsocprod/jps/LimbFit/fits';
+my $path_dir = '/surge28/jsocprod/jps/LimbFit/paths';
+my $stage_dir = '/surge28/jsocprod/jps/LimbFit/stage';
 my $pnam = '/home/jps/LimbFit/get_fits.csh';
-my $log = '/tmp28/jps/LimbFit/logs';
+my $log = '/surge28/jsocprod/jps/LimbFit/logs';
 my $qsub = '/SGE/bin/lx24-amd64/qsub2';
 
 GetOptions(
