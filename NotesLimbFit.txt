@@ -28,3 +28,9 @@ calls /home/jps/git/LimbFit/get_fits_c_q_nrt.csh (via qsub)
           inp /tmp29/jps/Limbfit_c/fits_nrt/
           out /tmp29/jps/Limbfit_c/mpt3h
     then /home/jps/git/aia_pointing/update3h_mpt.pl
+
+Replace nan (missing) in 3h MPT:
+
+pushd /home/jps/LF/Missing/
+grep ^2018 aia.master_pointing3h_miss.171 | /home/jps/git/LimbFit/update_nans.pl
+
