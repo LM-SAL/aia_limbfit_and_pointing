@@ -124,7 +124,9 @@ func minihough(ixlimb, iylimb, niter)
     if ix le 0 or ix ge (nxc-1) then {
       ty, 'x center max at edge, no interpolation, Hough dx, dy =', dx, dy   return, 1 }
     if iy le 0 or iy ge (nyc-1) then {
-      ty, 'y center max at edge, no interpolation, Hough dx, dy =', dx, dy   return, 1 }
+      // y is more frequently a problem than x, so use an edge for y and cont
+      ty, 'y center max at edge, no interpolation, Hough dx, dy =', dx, dy
+    } else {
   //  if $showflag gt 2 then ty,'values around (x,y) max =', mhrval((ix-1):(ix+1),(iy-1):(iy+1))
     getmin9,-mhcount((ix-1):(ix+1),(iy-1):(iy+1)), xc1, yc1
   //  xport, 61, 330,110
@@ -135,6 +137,7 @@ func minihough(ixlimb, iylimb, niter)
     ;damp
     dx = (dx + xc1) * 0.5
     dy = (dy + yc1) * 0.5
+    }
     ;and now use the dx, dy to re-compute r
     rdlimb = sqrt( (ixlimb-($sdisk_xc+dx))^2 + (iylimb-($sdisk_yc+dy))^2)
     rdlimb = rfix(rdlimb - $sdisk_r)
