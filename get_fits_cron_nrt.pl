@@ -7,7 +7,7 @@ $ENV{SUMSERVER} = "k1";
 $ENV{SGE_ROOT} = "/SGE";
 $ENV{TZ} = "UTC";
 my $pnam = '/home/jps/git/LimbFit/get_fits_q_nrt.csh';
-my $log = '/tmp29/jps/LimbFit/logs_nrt';
+my $log = '/surge40/jps/LimbFit/logs_nrt';
 my $qsub = '/SGE/bin/lx24-amd64/qsub2';
 my ($sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd) = gmtime(time-79200);
 $sec = $mn = 0; $yr += 1900; $mo++;
