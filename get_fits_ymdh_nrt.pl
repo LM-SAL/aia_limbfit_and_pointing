@@ -14,6 +14,7 @@ my $pnam = '/home/jps/LimbFit/get_fits_nrt.csh';
 my $log = '/tmp28/jsocprod/jps/LimbFit/logs_nrt';
 my $qsub = '/SGE/bin/lx24-amd64/qsub2';
 
+umask 0002;
 GetOptions(
            "outroot=s" => \$outroot,
            "path_dir=s" => \$path_dir,

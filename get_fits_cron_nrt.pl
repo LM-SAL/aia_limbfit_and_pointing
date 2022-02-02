@@ -11,6 +11,7 @@ my $log = '/surge40/jps/LimbFit/logs_nrt';
 my $qsub = '/SGE/bin/lx24-amd64/qsub2';
 my ($sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd) = gmtime(time-79200);
 $sec = $mn = 0; $yr += 1900; $mo++;
+umask 0002;
 GetOptions(
            "year=i" => \$yr,
            "month=i" => \$mo,

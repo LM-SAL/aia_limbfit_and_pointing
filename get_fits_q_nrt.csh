@@ -6,6 +6,7 @@ source /SGE2/default/common/settings.csh
 setenv ANA_DIR /home/jps/ana
 setenv ANA_SLIB $ANA_DIR/slib/
 setenv ANA_WLIB $ANA_DIR/wlib/
+umask 0002
 cd /home/jps/git/LimbFit
 /home/jps/bin/get_paths_nrt.pl -y=$1 -mo=$2 -da=$3 -h=$4 -dur=$5
 ./get_fits_ymdh_nrt.pl -y=$1 -mo=$2 -da=$3 -h=$4 -dur=$5

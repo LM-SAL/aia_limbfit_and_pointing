@@ -6,6 +6,7 @@ use Getopt::Long;
 $ENV{SUMSERVER} = "k1";
 $ENV{SGE_ROOT} = "/SGE";
 $ENV{TZ} = "UTC";
+umask 0002;
 my $pnam = '/home/jps/git/LimbFit/get_fits_c_q_nrt.csh';
 my $log = '/surge40/jps/LimbFit_c/logs_nrt';
 my $qsub = '/SGE/bin/lx24-amd64/qsub2';

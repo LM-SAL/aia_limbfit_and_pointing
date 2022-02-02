@@ -11,6 +11,7 @@ my $filt = '[?MISSVALS\<99?]';
 my $outroot = '/surge40/jps/LimbFit_c/fits_nrt';
 my $series = 'aia.lev1_nrt2';
 
+umask 0002;
 GetOptions(
            "filter=s" => \$filt,
            "series=s" => \$series,
