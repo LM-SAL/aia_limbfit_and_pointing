@@ -8,7 +8,7 @@ $ENV{SGE_ROOT} = "/SGE";
 my $JSOC_MACHINE = $ENV{JSOC_MACHINE};
 my ($yr, $mo, $hr, $da, $dur, $inpnam, $outnam, $qs, @files, $n, $wl, $sum);
 my $filt = '[?MISSVALS\<99?]';
-my $outroot = '/tmp29/jps/LimbFit_c/fits_nrt';
+my $outroot = '/surge40/jps/LimbFit_c/fits_nrt';
 my $series = 'aia.lev1_nrt2';
 
 GetOptions(
