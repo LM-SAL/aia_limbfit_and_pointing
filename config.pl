@@ -37,7 +37,7 @@ return {
   fits_root      => '/surge40/nabil/LimbFit_c/fits_nrt',
   test_fits_root => '/surge40/nabil/LimbFit_c/Ctest',
   logs_dir       => '/surge40/nabil/LimbFit_c/logs_nrt',
-  pointing_dir   => '/surge40/nabil/LimbFit_c/Pointing/daily',
+  pointing_dir   => '/surge40/nabil/LimbFit_c/stage',
 
   # Deployment paths — gap check
   check_gaps_dir => '/surge40/nabil/LimbFit_c/gaps',
