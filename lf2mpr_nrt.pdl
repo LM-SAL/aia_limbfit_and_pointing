@@ -1,0 +1,80 @@
+#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use strict;
+use warnings;
+use FindBin        qw($RealBin);
+use File::Basename qw(basename);
+use lib "$RealBin/lib";
+use AIALimbfit::Reducer qw(kwd_lines limb_input_path masterpoint_filename reduce_limb_points);
+use PDL;
+use PDL::IO::Misc;
+use Getopt::Long;
+use File::Path qw(make_path);
+
+my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
+my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my @wl       = @{ $cfg->{wl} };
+my $dur      = $cfg->{cadence_h};
+my $mode     = '>';
+my $inpdir   = '/data1/tmp/LimbFits';
+my $outdir   = '/data1/tmp/mpt3h';
+my $stagedir = $cfg->{pointing_dir};
+my $email    = 0;
+my ( $inpnam, $stage );
+my ( $sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd ) = gmtime time - 3600;
+$yr += 1900;
+$mo++;
+$hr = $mn = $sec = 0;
+GetOptions(
+  'year=i'   => \$yr,
+  'month=i'  => \$mo,
+  'day=i'    => \$da,
+  'hour=i'   => \$hr,
+  'dur=i'    => \$dur,
+  'inpdir=s' => \$inpdir,
+  'outdir=s' => \$outdir,
+  'stage!'   => \$stage,
+  'stgdir=s' => \$stagedir,
+  'email'    => \$email,
+);
+umask 0002;
+
+my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $dur );
+make_path( $outdir,   { chmod => oct('755') } ) unless -d $outdir;
+make_path( $stagedir, { chmod => oct('755') } ) if $stage && !-d $stagedir;
+
+my $outnam       = "$outdir/$outbase";
+my $stage_outnam = "$stagedir/" . basename($outbase);
+
+foreach my $w (@wl) {
+  $inpnam = limb_input_path( $inpdir, $yr, $mo, $da, $hr, $w );
+  next unless -e $inpnam;
+  next if -z $inpnam;
+  my ( $x0, $y0 ) = rcols $inpnam, 0, 1;
+
+  my ( $xp2, $yp2, $xp2av, $yp2av ) = eval { reduce_limb_points( $x0, $y0, $w, $cfg ) };
+  if ($@) {
+    unlink $outnam       if -e $outnam;
+    unlink $stage_outnam if -e $stage_outnam;
+    die "Split-cluster detected for $inpnam (${w}A)\n" if $@ =~ /Split-cluster/;
+    die $@;
+  }
+
+  open my $fh, $mode, $outnam or die "Can't open '$outnam' for writing: $!\n";
+  print {$fh} kwd_lines( $w, $xp2av, $yp2av );
+  close $fh or die "Can't close '$outnam': $!\n";
+  system 'cp', $outnam, $stagedir if $stage;
+
+  if ( $email && ( $xp2av != $xp2av || $yp2av != $yp2av ) ) {
+    if (
+      open my $mail_fh,
+      q{|-}, q{mailx}, '-s',
+      "${w}A NaN result 3h MPT",
+      split( /,/, $cfg->{mail_to} )
+      )
+    {
+      print {$mail_fh} "${w}A NaN result 3h MPT\n$inpnam\n";
+      close $mail_fh or warn "mailx failed: $?\n";
+    }
+  }
+  $mode = '>>';
+}
