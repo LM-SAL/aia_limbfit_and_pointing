@@ -1,0 +1,41 @@
+severity = 1
+
+# These are pipeline scripts, not installable modules
+[-Modules::RequireVersionVar]
+[-Modules::RequireExplicitPackage]
+[-Modules::RequireEndWithOne]
+
+# Scripts use die/warn directly; croak/carp are for library modules
+[-ErrorHandling::RequireCarping]
+
+# Domain-specific constants (AIA wavelengths, time offsets, etc.) throughout
+[-ValuesAndExpressions::ProhibitMagicNumbers]
+
+# Short regex patterns throughout; adding /x /m /s adds noise without benefit
+[-RegularExpressions::RequireExtendedFormatting]
+[-RegularExpressions::RequireLineBoundaryMatching]
+[-RegularExpressions::RequireDotMatchAnything]
+
+# Parens on builtins are often needed to avoid precedence bugs in complex expressions
+[-CodeLayout::ProhibitParensWithBuiltins]
+
+# $! is idiomatic in Perl error messages; English aliases add noise to scripts
+[-Variables::ProhibitPunctuationVars]
+
+# C-style for is used for non-unit step iteration (e.g. $h0 += $dur)
+[-ControlStructures::ProhibitCStyleForLoops]
+
+# Postfix next/die/warn are readable one-liner guards in scripts
+[-ControlStructures::ProhibitPostfixControls]
+
+# Script main blocks legitimately hold pipeline logic that would be
+# artificially split just to satisfy a cyclomatic complexity threshold
+[-Modules::ProhibitExcessMainComplexity]
+
+[-InputOutput::ProhibitBacktickOperators]
+[-InputOutput::ProhibitBarewordFileHandles]
+[-InputOutput::RequireBriefOpen]
+
+# Diagnostic print calls in pipeline scripts don't need return-value checks;
+# file open/close errors are already guarded with "or die" directly.
+[-InputOutput::RequireCheckedSyscalls]
