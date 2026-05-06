@@ -242,9 +242,7 @@ def load_limb_file(path: Path, nan_sentinel: float) -> LimbData:
 def attach_reducer_masks(data: LimbData, wavelength: int) -> None:
     if data.reducer_center is None or data.reducer_error is not None:
         return
-    accepted, rejected = compute_reducer_masks(
-        data.frame, data.invalid_mask, wavelength
-    )
+    accepted, rejected = compute_reducer_masks(data.frame, data.invalid_mask, wavelength)
     data.reducer_accepted_mask = accepted
     data.reducer_rejected_mask = rejected
 
@@ -266,9 +264,7 @@ def parse_limb_filename(path: Path) -> dict:
     }
 
 
-def run_reducer(
-    limb_path: Path, perl_bin: str
-) -> tuple[tuple[float, float] | None, str | None]:
+def run_reducer(limb_path: Path, perl_bin: str) -> tuple[tuple[float, float] | None, str | None]:
     """Invoke lf2mpr_nrt.pdl on a single .limb file and return (x0, y0) or an error."""
     repo_root = Path(__file__).parent.resolve()
     reducer = repo_root / REDUCER_NAME
@@ -286,10 +282,7 @@ def run_reducer(
         nested = inpdir / info["yr"] / info["mo"] / info["da"]
         nested.mkdir(parents=True)
 
-        target = (
-            nested
-            / f"{info['yr']}{info['mo']}{info['da']}_{info['hr']}_{info['wl']:04d}.limb"
-        )
+        target = nested / f"{info['yr']}{info['mo']}{info['da']}_{info['hr']}_{info['wl']:04d}.limb"
         target.symlink_to(limb_path)
 
         cmd = [

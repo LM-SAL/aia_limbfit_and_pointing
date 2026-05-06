@@ -1,0 +1,29 @@
+name: Perl tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Perl dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpanminus pdl
+          sudo cpanm --notest PDL::Stats
+
+      - name: Show dependency versions
+        run: |
+          perl -V:version
+          perl -MPDL -e 'print "PDL $PDL::VERSION\n"'
+          perl -MPDL::Stats::Basic -e 'print "PDL::Stats::Basic ok\n"'
+
+      - name: Run Perl tests
+        run: prove -lv t

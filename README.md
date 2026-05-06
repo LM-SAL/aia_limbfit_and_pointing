@@ -62,6 +62,8 @@ The tests cover the shared modules under `lib/AIALimbfit/`, including slot times
 
 Most Perl scripts honor `AIA_LIMBFIT_CONFIG=/path/to/config.pl`, which lets tests inject temporary paths and fake executables. Command wrappers that would normally call production tools also provide `-dry-run` where practical, so local tests can assert the generated commands without touching DRMS, SGE, `limbfit_aia`, or production data trees.
 
+GitHub Actions runs the same `prove -lv t` suite on pushes and pull requests. A `.pre-commit-config.yaml` is also included for local Python checks with Ruff linting/formatting plus common lightweight hygiene hooks; it intentionally avoids Perl and csh hooks.
+
 ## Installing Perl
 
 On JSOC, the local Perl install is old, so it is ideal to install a local version with `PDL` and `PDL::Stats`.

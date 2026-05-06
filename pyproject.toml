@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# plot_limb.py deliberately configures MPLCONFIGDIR before importing matplotlib.
+extend-ignore = ["E402"]
