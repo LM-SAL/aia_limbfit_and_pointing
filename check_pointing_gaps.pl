@@ -184,16 +184,20 @@ my $temporal = 0;
 my $wl_gaps  = 0;
 my $slot_issues = 0;
 
+my @valid_recs;
 for my $rec (@recs) {
   my @issues = slot_record_issues( $rec, cadence_s => $cadence_s );
-  next unless @issues;
-  printf "INVALID SLOT  %s  ->  %s  (%s)\n", $rec->{t_start}, $rec->{t_stop}, join ', ', @issues;
-  $slot_issues++;
+  if (@issues) {
+    printf "INVALID SLOT  %s  ->  %s  (%s)\n", $rec->{t_start}, $rec->{t_stop}, join ', ', @issues;
+    $slot_issues++;
+    next;
+  }
+  push @valid_recs, $rec;
 }
 
-for my $i ( 1 .. $#recs ) {
-  my $prev = $recs[ $i - 1 ];
-  my $cur  = $recs[$i];
+for my $i ( 1 .. $#valid_recs ) {
+  my $prev = $valid_recs[ $i - 1 ];
+  my $cur  = $valid_recs[$i];
   my $diff = $cur->{start} - $prev->{stop};
   if ( $diff < -$epsilon ) {
     printf "OVERLAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, -$diff / 3600.0;
@@ -213,7 +217,7 @@ for my $i ( 1 .. $#recs ) {
   $temporal++;
 }
 
-for my $rec (@recs) {
+for my $rec (@valid_recs) {
   next if $rec->{missing_count} == 0;
 
   printf {$patch_fh} "%s  %d  NaN  NaN\n", $rec->{t_start}, $_ for @{ $rec->{missing_wl} };

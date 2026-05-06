@@ -5,7 +5,7 @@ use Getopt::Long;
 use FindBin        qw($RealBin);
 use File::Basename qw(dirname);
 use lib "$RealBin/lib";
-use AIALimbfit::Slot qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint);
+use AIALimbfit::Slot qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
@@ -69,6 +69,11 @@ my $masterpoint_re = qr{
 while ( my $mpu = shift @files ) {
   next unless $mpu =~ $masterpoint_re;
   my $slot  = slot_bounds_from_masterpoint($mpu) or next;
+  my @slot_issues = slot_record_issues( $slot, cadence_s => ( $cfg->{cadence_h} // 3 ) * 3600 );
+  if (@slot_issues) {
+    warn "Skipping $mpu: invalid slot (" . join( ', ', @slot_issues ) . ")\n";
+    next;
+  }
   my $trec  = $slot->{t_start};
   my $tstop = $slot->{t_stop};
   my $fmtim = ( stat("$src/$mpu") )[9];
@@ -98,7 +103,6 @@ while ( my $mpu = shift @files ) {
       && $kv{DATE} gt iso8601($fmtim);
 
     if ( $kv{VERSION} ) {
-      $kvsdo{T_STOP}  = $kv{T_STOP};
       $kvsdo{VERSION} = $kv{VERSION} + 1;
     }
     else {
@@ -114,6 +118,7 @@ while ( my $mpu = shift @files ) {
           'T_STOP=' . $kvsdo{T_STOP}, 'VERSION=1'
         ) == 0 or warn "set_info update failed for $kv{T_START}: exit=$?\n";
       }
+      next;
     }
   }
 
