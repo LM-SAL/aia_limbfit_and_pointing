@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use v5.42;
 
 # Central configuration for the AIA limbfit / pointing NRT pipeline.
 # Load with: my $cfg = do "$FindBin::RealBin/config.pl" or die "Cannot load config.pl: " . ($@ || $!);
@@ -15,7 +14,7 @@ return {
   tz        => 'UTC',
 
   # Executables
-  perl_bin    => '/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl',
+  perl_bin    => '/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl',
   qsub        => '/SGE/bin/lx24-amd64/qsub2',
   limbfit_exe => '/homef/nabil/JSOC-orig/bin/linux_avx2/limbfit_aia',
   set_info    => '/homef/nabil/JSOC-orig/bin/linux_avx2/set_info',
@@ -26,25 +25,25 @@ return {
   drms_scrs_install_dir   => '/homef/nabil/JSOC-orig/scripts',
   drms_src_install_dir    => '/homef/nabil/JSOC-orig/src',
 
-  # DRMS series and query — NRT
+  # DRMS series and query - NRT
   lev1_series => 'aia.lev1_nrt2',
   mpt_series  => 'aia.master_pointing3h',
   sdo_series  => 'sdo.master_pointing',
   drms_filter => '[?MISSVALS<99?]',
 
-  # Deployment paths — NRT
-  repo_root      => '/home/nabil/Git/aia_limbfit_and_pointing',
+  # Deployment paths - NRT
+  repo_root      => '/homef/nabil/Git/aia_limbfit_and_pointing',
   fits_root      => '/surge40/nabil/LimbFit_c/fits_nrt',
   test_fits_root => '/surge40/nabil/LimbFit_c/Ctest',
   logs_dir       => '/surge40/nabil/LimbFit_c/logs_nrt',
   pointing_dir   => '/surge40/nabil/LimbFit_c/stage',
 
-  # Deployment paths — gap check
+  # Deployment paths - gap check
   check_gaps_dir => '/surge40/nabil/LimbFit_c/gaps',
 
-  # Deployment paths — NaN gap-fill
+  # Deployment paths - NaN gap-fill
   update_dir => '/surge40/nabil/LimbFit_c/Update',
-  lf_sed     => '/home/nabil/sed/lf.sed',
+  lf_sed     => '/homef/nabil/sed/lf.sed',
 
   # Pipeline constants
   cadence_h => 3,

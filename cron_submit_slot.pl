@@ -1,6 +1,5 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::CronSlot qw(default_slot_from_epoch pipeline_shell_command run_id should_run_hour);
@@ -26,6 +25,7 @@ exit unless should_run_hour($hr);
 my $log = $cfg->{logs_dir};
 make_path( $log, { chmod => oct('755') } ) unless -d $log;
 my $cmd = pipeline_shell_command( $cfg->{repo_root}, $log, $yr, $mo, $da, $hr );
+
 if ($dry_run) {
   print "$cmd\n";
   exit 0;

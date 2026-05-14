@@ -1,26 +1,27 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use Getopt::Long;
 use FindBin        qw($RealBin);
 use File::Basename qw(dirname);
 use lib "$RealBin/lib";
-use AIALimbfit::Slot qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
+use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
+use AIALimbfit::Slot
+  qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{TZ} = $cfg->{tz};
-$ENV{SUMSERVER} //= $cfg->{sumserver};
+local $ENV{SUMSERVER} = $ENV{SUMSERVER} // $cfg->{sumserver};
 my $drms_bin_dir = dirname( $cfg->{show_info} );
 my $drms_base    = dirname( dirname($drms_bin_dir) );
-$ENV{DRMS_ROOT_DIR}           //= $drms_base;
-$ENV{DRMS_INSTALL_DIR}        //= $drms_base;
-$ENV{DRMS_BINS_INSTALL_DIR}   //= $drms_bin_dir;
-$ENV{DRMS_LIBS_INSTALL_DIR}   //= "$drms_base/lib/linux_avx2";
-$ENV{DRMS_INCS_INSTALL_DIR}   //= "$drms_base/include";
-$ENV{DRMS_PARAMS_INSTALL_DIR} //= "$drms_base/include/base";
-$ENV{DRMS_SCRS_INSTALL_DIR}   //= "$drms_base/scripts";
-$ENV{DRMS_SRC_INSTALL_DIR}    //= "$drms_base/src";
+local $ENV{DRMS_ROOT_DIR} = $ENV{DRMS_ROOT_DIR} // $drms_base;
+local $ENV{DRMS_INSTALL_DIR} = $ENV{DRMS_INSTALL_DIR} // $drms_base;
+local $ENV{DRMS_BINS_INSTALL_DIR} = $ENV{DRMS_BINS_INSTALL_DIR} // $drms_bin_dir;
+local $ENV{DRMS_LIBS_INSTALL_DIR} = $ENV{DRMS_LIBS_INSTALL_DIR} // "$drms_base/lib/linux_avx2";
+local $ENV{DRMS_INCS_INSTALL_DIR} = $ENV{DRMS_INCS_INSTALL_DIR} // "$drms_base/include";
+local $ENV{DRMS_PARAMS_INSTALL_DIR} = $ENV{DRMS_PARAMS_INSTALL_DIR} // "$drms_base/include/base";
+local $ENV{DRMS_SCRS_INSTALL_DIR} = $ENV{DRMS_SCRS_INSTALL_DIR} // "$drms_base/scripts";
+local $ENV{DRMS_SRC_INSTALL_DIR} = $ENV{DRMS_SRC_INSTALL_DIR} // "$drms_base/src";
 
 my $mpre      = '^masterpoint_20';
 my $del       = 0;
@@ -31,21 +32,12 @@ my $src       = $cfg->{pointing_dir};
 my $set_info  = $cfg->{set_info};
 my $show_info = $cfg->{show_info};
 
-sub _show_info {
-  my (@args) = @_;
-  open my $fh, q{-|}, $show_info, @args or die "Cannot run $show_info: $!\n";
-  my @lines = <$fh>;
-  close $fh or die "show_info failed (@args): exit=$?\n";
-  return @lines;
+sub _show_info (@args) {
+  return show_info_lines( $show_info, @args );
 }
 
-for my $key (qw(DRMS_BINS_INSTALL_DIR DRMS_LIBS_INSTALL_DIR DRMS_INCS_INSTALL_DIR)) {
-  die "Environment variable $key is not set\n"       unless $ENV{$key};
-  die "Directory $ENV{$key} ($key) does not exist\n" unless -d $ENV{$key};
-}
-die "SUMSERVER is not set\n"                              unless $ENV{SUMSERVER};
-die "show_info not found or not executable: $show_info\n" unless -x $show_info;
-die "set_info not found or not executable: $set_info\n"   unless -x $set_info;
+validate_drms_runtime($show_info);
+die "set_info not found or not executable: $set_info\n" unless -x $set_info;
 
 GetOptions(
   'delete'   => \$del,
@@ -68,8 +60,9 @@ my $masterpoint_re = qr{
 
 while ( my $mpu = shift @files ) {
   next unless $mpu =~ $masterpoint_re;
-  my $slot  = slot_bounds_from_masterpoint($mpu) or next;
-  my @slot_issues = slot_record_issues( $slot, cadence_s => ( $cfg->{cadence_h} // 3 ) * 3600 );
+  my $slot        = slot_bounds_from_masterpoint($mpu) or next;
+  my $cadence_h   = $cfg->{cadence_h} // 3;
+  my @slot_issues = slot_record_issues( $slot, cadence_s => $cadence_h * 3600 );
   if (@slot_issues) {
     warn "Skipping $mpu: invalid slot (" . join( ', ', @slot_issues ) . ")\n";
     next;
@@ -98,9 +91,8 @@ while ( my $mpu = shift @files ) {
     chomp( my @v = split /\t/, $lines[1] );
     my %kv;
     @kv{@k} = @v;
-    next
-      if $kv{DATE} gt $trec
-      && $kv{DATE} gt iso8601($fmtim);
+    # Age guard: skip if the existing DRMS record is newer than the masterpoint file on disk.
+    next if $kv{DATE} gt iso8601($fmtim);
 
     if ( $kv{VERSION} ) {
       $kvsdo{VERSION} = $kv{VERSION} + 1;
@@ -108,7 +100,8 @@ while ( my $mpu = shift @files ) {
     else {
       my $d = iso8601();
       if ($dry_run) {
-        print "$set_info ", sprintf('ds=%s[%s]', $series, $kv{T_START}), " DATE=$d T_STOP=$kvsdo{T_STOP} VERSION=1\n";
+        print "$set_info ", sprintf( 'ds=%s[%s]', $series, $kv{T_START} ),
+          " DATE=$d T_STOP=$kvsdo{T_STOP} VERSION=1\n";
       }
       else {
         system(
@@ -134,7 +127,7 @@ while ( my $mpu = shift @files ) {
 
   if ($dry_run) {
     print "$set_info -c ds=$series";
-    for my $k (sort keys %kvsdo) {
+    for my $k ( sort keys %kvsdo ) {
       print " $k=$kvsdo{$k}";
     }
     print "\n";

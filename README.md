@@ -80,7 +80,7 @@ To do this, `perlbrew` is the simplest way:
 ## crontab Entries
 
 ```console
-    1 * * * * /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+    1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 ```
 
 The above crontab listing is for user `nabil` on `solar4` at the Stanford JSOC-SDP.
@@ -97,7 +97,7 @@ In addition to limb fitting the images, the wrapper scripts call the shared redu
 An example interactive invocation is
 
 ```console
-    /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
+    /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
 ```
 
 for limb fitting with C.
@@ -105,7 +105,7 @@ for limb fitting with C.
 If you want to run the full near-real-time C shell wrapper directly instead of the Perl cron submitter, use `pipeline_slot_nrt.csh` with positional arguments `year month day hour`:
 
 ```console
-    /home/nabil/Git/aia_limbfit_and_pointing/pipeline_slot_nrt.csh 2026 3 28 0
+    /homef/nabil/Git/aia_limbfit_and_pointing/pipeline_slot_nrt.csh 2026 3 28 0
 ```
 
 ## Limb Fit Data Flow
@@ -169,7 +169,7 @@ To debug a single wavelength without triggering the full pipeline:
 **DRMS-level gap check:** Use `check_pointing_gaps.pl` to query the pointing table directly for temporal gaps and missing wavelengths:
 
 ```console
-    # Scan from 2010-06-01 to today:
+    # Scan from 2010-11-01 to today:
     ./check_pointing_gaps.pl
 
     # Scan a specific range:
@@ -233,7 +233,7 @@ YYYY-MM-DDTHH:MM:SSZ  wavelength  x_centre  y_centre
 3. Back-fill via `update_nans.pl`:
 
 ```console
-    grep ^2024 aia.master_pointing3h_miss.171 | /home/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
+    grep ^2024 aia.master_pointing3h_miss.171 | /homef/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
 ```
 
 The script will:
@@ -354,7 +354,7 @@ On the current deployment this resolves to `/surge40/nabil/LimbFit_c/logs_nrt/YY
 
 ```console
     # crontab entry on solar4 (runs every hour, acts every 3 h):
-    1 * * * * /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+    1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 
     # manual back-fill for a specific 3-hour slot:
     ./cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
@@ -477,7 +477,7 @@ Typical workflow (as documented in `NotesLimbFit.txt`):
 
 ```console
     grep ^2024 /path/to/missing/aia.master_pointing3h_miss.171 \
-      | /home/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
+      | /homef/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
 ```
 
 Use `-dry-run` to print the `sed`, `lf2mpr_nrt.pdl`, and `update3h_mpt.pl` commands without modifying files or DRMS.
@@ -496,7 +496,7 @@ Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and
 - **Slot issues** — off-grid, wrong-duration, zero-duration, or overlapping records.
 - **Wavelength gaps** — existing records where one or more wavelengths have bad values (NaN, MISSING, or the nan sentinel).
 
-When no start date is specified the script defaults to `2010-06-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
+When no start date is specified the script defaults to `2010-11-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
 
 ```console
     ./check_pointing_gaps.pl                              # full pipeline: report + execute + patch.txt
@@ -508,7 +508,7 @@ Options:
 
 | Option | Effect |
 | ------ | ------ |
-| `-year`, `-month`, `-day` | Start date (defaults to `2010-06-01`) |
+| `-year`, `-month`, `-day` | Start date (defaults to `2010-11-01`) |
 | `-end_year`, `-end_month`, `-end_day` | End date (defaults to today) |
 | `-series=S` | Override target DRMS pointing series |
 | `-image_series=S` | Override image source series (default `aia.lev1_nrt2`; use `aia.lev1` for old gaps) |

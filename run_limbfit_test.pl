@@ -1,6 +1,5 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::LimbfitCommand qw(
@@ -10,13 +9,14 @@ use AIALimbfit::LimbfitCommand qw(
   limbfit_query
   plot_command
   plot_path
+  run_limbfit_to_file
   wavelength_sum
 );
 use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER}               = $cfg->{sumserver};
 local $ENV{SGE_ROOT}                = $cfg->{sge_root};
 local $ENV{DRMS_ROOT_DIR}           = $cfg->{drms_root_dir};
@@ -50,8 +50,7 @@ $dur //= '3h';
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
-sub _generate_plot {
-  my ($limb) = @_;
+sub _generate_plot ($limb) {
   return unless -s $limb;
 
   system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $limb, perl => $^X ) ) == 0
@@ -61,20 +60,43 @@ sub _generate_plot {
 
 my $outnam = limb_filename( $yr, $mo, $da, $hr, $w );
 my $qs     = limbfit_query(
-  series => $series, year => $yr, month => $mo, day => $da, hour => $hr,
-  duration => $dur, wavelength => $w, filter => $filt,
+  series     => $series,
+  year       => $yr,
+  month      => $mo,
+  day        => $da,
+  hour       => $hr,
+  duration   => $dur,
+  wavelength => $w,
+  filter     => $filt,
 );
 my $sum     = wavelength_sum($w);
 my $outpath = "$outdir/$outnam";
-my $cmd     = limbfit_command( limbfit_exe => $cfg->{limbfit_exe}, query => $qs, sum => $sum, outpath => $outpath );
+my $cmd     = limbfit_command(
+  limbfit_exe => $cfg->{limbfit_exe},
+  query       => $qs,
+  sum         => $sum,
+  outpath     => $outpath
+);
 
 if ($dry_run) {
   print "$cmd\n";
-  print join( ' ', plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ), "\n" if $plots;
+  print join( q{ },
+    plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ),
+    "\n"
+    if $plots;
   exit 0;
 }
 
-system($cmd) == 0
-  or die "limbfit_aia failed for ${w}A\n";
+my $status = run_limbfit_to_file(
+  limbfit_exe => $cfg->{limbfit_exe},
+  query       => $qs,
+  sum         => $sum,
+  outpath     => $outpath,
+);
+
+if ( $status != 0 || !-e $outpath || !-s $outpath ) {
+  unlink $outpath if -e $outpath;
+  die "limbfit_aia failed for ${w}A\n";
+}
 
 _generate_plot($outpath) if $plots;

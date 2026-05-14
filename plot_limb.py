@@ -30,7 +30,7 @@ from matplotlib.lines import Line2D
 
 DEFAULT_SENTINEL = 1234567.0
 REDUCER_NAME = "lf2mpr_nrt.pdl"
-DEFAULT_PERL = "/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl"
+DEFAULT_PERL = "/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl"
 
 
 @dataclass

@@ -1,7 +1,6 @@
 package AIALimbfit::Slot;
 
-use strict;
-use warnings;
+use v5.42;
 use Exporter qw(import);
 use Time::Local qw(timegm);
 
@@ -17,14 +16,12 @@ our @EXPORT_OK = qw(
   ts2ymdh
 );
 
-sub iso8601 {
-  my ($ts) = @_;
-  my ( $sec, $min, $hour, $mday, $mon, $year ) = gmtime( $ts // time );
+sub iso8601 ( $ts = time ) {
+  my ( $sec, $min, $hour, $mday, $mon, $year ) = gmtime($ts);
   return sprintf '%d-%.2d-%.2dT%.2d:%.2d:%.2dZ', $year + 1900, $mon + 1, $mday, $hour, $min, $sec;
 }
 
-sub tstr2ts {
-  my ($tstr) = @_;
+sub tstr2ts ($tstr) {
   return unless defined $tstr;
   my ( $ymd, $hms ) = split /T/, $tstr;
   return unless defined $ymd && defined $hms;
@@ -32,23 +29,22 @@ sub tstr2ts {
   my ( $hr, $mn, $sc ) = split /:/, $hms;
   return unless defined $yr && defined $mo && defined $da && defined $hr && defined $mn && defined $sc;
   $sc =~ s/Z$//;
-  my $ts = eval { timegm( $sc, $mn, $hr, $da, $mo - 1, $yr ) };
-  return $@ ? undef : $ts;
+  my $ts;
+  try { $ts = timegm( $sc, $mn, $hr, $da, $mo - 1, $yr ) }
+  catch ($e) { return undef }
+  return $ts;
 }
 
-sub ts2ymdh {
-  my ($ts) = @_;
+sub ts2ymdh ($ts) {
   my ( undef, undef, $h, $d, $m, $y ) = gmtime $ts;
   return ( $y + 1900, $m + 1, $d, $h );
 }
 
-sub drms_time {
-  my ($trec) = @_;
+sub drms_time ($trec) {
   return sprintf '%c(%s)', 36, $trec;
 }
 
-sub parse_masterpoint_filename {
-  my ($name) = @_;
+sub parse_masterpoint_filename ($name) {
   return unless defined $name;
   ( my $base = $name ) =~ s{.*/}{};
   my ( $yr, $mo, $da, $hr, $mn, $dur ) =
@@ -64,15 +60,15 @@ sub parse_masterpoint_filename {
   };
 }
 
-sub slot_bounds_from_masterpoint {
-  my ($source) = @_;
+sub slot_bounds_from_masterpoint ($source) {
   my $parts = ref $source eq 'HASH' ? { %{$source} } : parse_masterpoint_filename($source);
   return unless $parts;
 
-  my $center_epoch = eval {
-    timegm( 0, $parts->{minute}, $parts->{hour}, $parts->{day}, $parts->{month} - 1, $parts->{year} );
-  };
-  return if $@;
+  my $center_epoch;
+  try {
+    $center_epoch = timegm( 0, $parts->{minute}, $parts->{hour}, $parts->{day}, $parts->{month} - 1, $parts->{year} );
+  }
+  catch ($e) { return }
 
   my $duration_s  = $parts->{duration_h} * 3600;
   my $start_epoch = $center_epoch - int( $parts->{duration_h} * 1800 );
@@ -88,29 +84,21 @@ sub slot_bounds_from_masterpoint {
   };
 }
 
-sub series_contains_time_query {
-  my ( $series, $trec ) = @_;
+sub series_contains_time_query ( $series, $trec ) {
   my $drms_trec = drms_time($trec);
   return sprintf '%s[?T_START<=%s and %s<T_STOP?]', $series, $drms_trec, $drms_trec;
 }
 
-sub _record_epoch {
-  my ( $rec, $epoch_key, $time_key ) = @_;
-  return $rec->{$epoch_key} if defined $rec->{$epoch_key};
-  return tstr2ts( $rec->{$time_key} ) if defined $rec->{$time_key};
-  my $upper_key = uc $time_key;
-  return tstr2ts( $rec->{$upper_key} ) if defined $rec->{$upper_key};
-  return;
+sub _record_epoch ( $rec, $epoch_key, $time_key ) {
+  return $rec->{$epoch_key} // tstr2ts( $rec->{$time_key} );
 }
 
-sub _is_on_grid {
-  my ( $ts, $grid_h ) = @_;
+sub _is_on_grid ( $ts, $grid_h ) {
   my ( $sec, $min, $hour ) = gmtime $ts;
   return $sec == 0 && $min == 0 && $hour % $grid_h == 0;
 }
 
-sub slot_record_issues {
-  my ( $rec, %opts ) = @_;
+sub slot_record_issues ( $rec, %opts ) {
   my $cadence_s = $opts{cadence_s} // 10_800;
   my $grid_h    = $opts{grid_h}    // int( $cadence_s / 3600 );
   $grid_h = 1 if $grid_h < 1;
@@ -132,8 +120,7 @@ sub slot_record_issues {
   return @issues;
 }
 
-sub slot_sequence_issues {
-  my ( $records, %opts ) = @_;
+sub slot_sequence_issues ( $records, %opts ) {
   my $epsilon = $opts{epsilon} // 2;
 
   my @issues;

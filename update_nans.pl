@@ -1,6 +1,5 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::NanPatch qw(limb_path parse_patch_line patch_commands);
@@ -41,7 +40,7 @@ while (<>) {
     update3h   => "$RealBin/update3h_mpt.pl",
   );
   if ($dry_run) {
-    print join( ' ', @{$_} ), "\n" for @commands;
+    print join( q{ }, @{$_} ), "\n" for @commands;
     next;
   }
   system( @{ $commands[0] } ) == 0 or die "sed failed\n";

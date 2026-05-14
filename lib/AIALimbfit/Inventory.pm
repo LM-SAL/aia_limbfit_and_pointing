@@ -1,20 +1,17 @@
 package AIALimbfit::Inventory;
 
-use strict;
-use warnings;
-use Exporter qw(import);
+use v5.42;
+use Exporter    qw(import);
 use Time::Local qw(timegm);
 
 our @EXPORT_OK = qw(expected_limb_path missing_limb_paths);
 
-sub expected_limb_path {
-  my ( $root, $year, $month, $day, $hour, $wavelength ) = @_;
+sub expected_limb_path ( $root, $year, $month, $day, $hour, $wavelength ) {
   return sprintf '%s/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb',
     $root, $year, $month, $day, $year, $month, $day, $hour, $wavelength;
 }
 
-sub missing_limb_paths {
-  my (%args) = @_;
+sub missing_limb_paths (%args) {
   my $root      = $args{fits_root};
   my $cadence_h = $args{cadence_h};
   my $end_epoch = $args{end_epoch} // ( $args{now_epoch} - ( $args{buffer_s} // 87_000 ) );
@@ -27,7 +24,7 @@ sub missing_limb_paths {
     $month += 1;
     for my $wavelength ( @{ $args{wavelengths} } ) {
       my $path = expected_limb_path( $root, $year, $month, $day, $hour, $wavelength );
-      push @missing, $path unless -e $path;
+      push @missing, $path unless -s $path;
     }
     $t += $cadence_h * 3600;
   }

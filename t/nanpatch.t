@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use Test::More;
@@ -25,6 +24,10 @@ is_deeply(
 );
 
 ok( !defined parse_patch_line('not a patch line'), 'reject malformed patch line' );
+ok(
+  !defined parse_patch_line('2026-05-01T03:00:00Z abc NaN NaN'),
+  'reject nonnumeric wavelength'
+);
 
 is(
   limb_path( '/tmp/fits', $entry ),

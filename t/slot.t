@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use Test::More;

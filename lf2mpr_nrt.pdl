@@ -1,8 +1,8 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin        qw($RealBin);
 use File::Basename qw(basename);
+use File::Copy     qw(copy);
 use lib "$RealBin/lib";
 use AIALimbfit::Reducer qw(kwd_lines limb_input_path masterpoint_filename reduce_limb_points);
 use PDL;
@@ -11,7 +11,7 @@ use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg      = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 my @wl       = @{ $cfg->{wl} };
 my $dur      = $cfg->{cadence_h};
 my $mode     = '>';
@@ -44,6 +44,7 @@ make_path( $stagedir, { chmod => oct('755') } ) if $stage && !-d $stagedir;
 
 my $outnam       = "$outdir/$outbase";
 my $stage_outnam = "$stagedir/" . basename($outbase);
+my $processed    = 0;
 
 foreach my $w (@wl) {
   $inpnam = limb_input_path( $inpdir, $yr, $mo, $da, $hr, $w );
@@ -51,18 +52,19 @@ foreach my $w (@wl) {
   next if -z $inpnam;
   my ( $x0, $y0 ) = rcols $inpnam, 0, 1;
 
-  my ( $xp2, $yp2, $xp2av, $yp2av ) = eval { reduce_limb_points( $x0, $y0, $w, $cfg ) };
-  if ($@) {
-    unlink $outnam       if -e $outnam;
-    unlink $stage_outnam if -e $stage_outnam;
-    die "Split-cluster detected for $inpnam (${w}A)\n" if $@ =~ /Split-cluster/;
-    die $@;
+  my ( $xp2, $yp2, $xp2av, $yp2av );
+  try { ( $xp2, $yp2, $xp2av, $yp2av ) = reduce_limb_points( $x0, $y0, $w, $cfg ) }
+  catch ($e) {
+    unlink $outnam                                     if -e $outnam;
+    unlink $stage_outnam                               if -e $stage_outnam;
+    die "Split-cluster detected for $inpnam (${w}A)\n" if $e =~ /Split-cluster/;
+    die $e;
   }
 
   open my $fh, $mode, $outnam or die "Can't open '$outnam' for writing: $!\n";
   print {$fh} kwd_lines( $w, $xp2av, $yp2av );
   close $fh or die "Can't close '$outnam': $!\n";
-  system 'cp', $outnam, $stagedir if $stage;
+  $processed++;
 
   if ( $email && ( $xp2av != $xp2av || $yp2av != $yp2av ) ) {
     if (
@@ -77,4 +79,16 @@ foreach my $w (@wl) {
     }
   }
   $mode = '>>';
+}
+
+if ( !$processed ) {
+  unlink $outnam       if -e $outnam;
+  unlink $stage_outnam if -e $stage_outnam;
+  die "No valid .limb files reduced for ${yr}-${mo}-${da} ${hr}:00 UTC\n";
+}
+
+if ($stage) {
+  unlink $stage_outnam if -e $stage_outnam;
+  copy( $outnam, $stage_outnam )
+    or do { unlink $outnam if -e $outnam; die "Can't stage '$outnam' to '$stage_outnam': $!\n" };
 }

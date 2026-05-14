@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use Test::More;
@@ -57,7 +56,8 @@ is( $yavg, 20, '4500 reduction filters sentinel before averaging y' );
   171,
   \%cfg
 );
-ok( $xavg != $xavg && $yavg != $yavg, 'zero-scatter non-4500 current behavior produces NaN' );
+is( $xavg, 1, 'zero-scatter non-4500 keeps finite x average' );
+is( $yavg, 2, 'zero-scatter non-4500 keeps finite y average' );
 
 ok(
   !detect_split_cluster( pdl( 0 .. 9 ), pdl( (0) x 10 ), \%cfg ),
