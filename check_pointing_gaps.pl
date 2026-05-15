@@ -4,42 +4,26 @@ use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
 use AIALimbfit::Inventory   qw(expected_limb_path);
-use AIALimbfit::Slot        qw(slot_record_issues tstr2ts ts2ymdh);
+use AIALimbfit::Slot        qw(tstr2ts ts2ymdh);
 use Getopt::Long;
 use Scalar::Util qw(looks_like_number);
 use Time::Local;
 use File::Basename qw(dirname);
 use File::Path     qw(make_path);
 
-# Query aia.master_pointing3h (or another pointing series) and report
-# temporal gaps between consecutive T_START/T_STOP records,
-# plus any wavelengths that are missing within existing records.
+# Query aia.master_pointing3h (or another pointing series) and report:
+#   - Temporal gaps: missing slots between consecutive records.
+#     Gaps that are a multiple of the cadence are backfilled automatically.
+#     Non-multiple gaps (corrupted T_STOP) are reported but left as-is.
+#   - Wavelength gaps: existing records with NaN/MISSING per-wavelength values.
+#     A patch.txt is written; feed it to update_nans.pl to repair.
 #
-# Default mode runs the full pipeline: reports gaps, executes back-fill,
-# generates plots, and writes a patch file for missing wavelengths.
-#   -dry-run   print the back-fill commands without running them.
-#   -plots     only regenerate plots for existing .limb files.
-#              Skips DRMS queries and limbfit execution.
+#   -dry-run      print back-fill commands without running them.
+#   -report-only  report gaps without running any back-fill or limbfit.
+#   -plots        only regenerate plots for existing .limb files.
 #
 # When no start date is given the script defaults to 2010-11-01.
 # When no end date is given the script defaults to 7 days ago.
-#
-# Usage:
-#   ./check_pointing_gaps.pl
-#   ./check_pointing_gaps.pl -year=2024 -month=3 -day=1
-#   ./check_pointing_gaps.pl -year=2024 -month=3 -plots
-
-sub _is_bad_value ( $v, $sentinel ) {
-  return 1 unless defined $v && length $v;
-  return 1 if $v =~ /^(?i:nan|missing)$/;
-  return 1 if defined $sentinel && $v eq $sentinel;
-  return 1
-    if defined $sentinel
-    && looks_like_number($v)
-    && looks_like_number($sentinel)
-    && 0 + $v == 0 + $sentinel;
-  return 0;
-}
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
@@ -66,7 +50,6 @@ my $series       = $cfg->{mpt_series};
 my $cadence_h    = $cfg->{cadence_h} // 3;
 my $cadence_s    = $cadence_h * 3600;
 my $nan_sentinel = $cfg->{nan_sentinel};
-my $fits_root    = $cfg->{fits_root};
 my @wl           = @{ $cfg->{wl} };
 
 my ( $yr, $mo, $da, $eyr, $emo, $eda );
@@ -140,7 +123,7 @@ open my $patch_fh, '>', $patch_file or die "Cannot open patch file '$patch_file'
 printf "# Checking %s from %d-%.2d-%.2d to %d-%.2d-%.2d\n", $series, $yr, $mo, $da, $eyr, $emo,
   $eda;
 
-my @keys = qw( T_START T_STOP );
+my @keys = qw(T_START T_STOP);
 for my $w (@wl) {
   push @keys, sprintf 'A_%.3d_X0', $w;
   push @keys, sprintf 'A_%.3d_Y0', $w;
@@ -171,10 +154,13 @@ for my $line (@lines) {
     }
   }
 
+  my $start = tstr2ts($t_start);
+  my $stop  = tstr2ts($t_stop);
+  next unless defined $start && defined $stop;
   push @recs,
     {
-    start         => tstr2ts($t_start),
-    stop          => tstr2ts($t_stop),
+    start         => $start,
+    stop          => $stop,
     t_start       => $t_start,
     t_stop        => $t_stop,
     missing_wl    => \@missing_wl,
@@ -187,45 +173,24 @@ for my $line (@lines) {
 my $epsilon           = 2;
 my $temporal          = 0;
 my $wl_gaps           = 0;
-my $slot_issues       = 0;
 my $backfills         = 0;
 my @backfill_failures = ();
 
-my @gap_recs;
-for my $rec (@recs) {
-  my @issues = slot_record_issues( $rec, cadence_s => $cadence_s );
-  if (@issues) {
-    printf "INVALID SLOT  %s  ->  %s  (%s)\n", $rec->{t_start}, $rec->{t_stop}, join ', ', @issues;
-    $slot_issues++;
-
-    if ( _is_bridgeable_wrong_duration( $rec, \@issues ) ) {
-      $backfills += _backfill_slot_range( $rec->{start}, $rec->{stop} );
-      $temporal++;
-      push @gap_recs, $rec;
-    }
-    next;
-  }
-  push @gap_recs, $rec;
-}
-
-for my $i ( 1 .. $#gap_recs ) {
-  my $prev = $gap_recs[ $i - 1 ];
-  my $cur  = $gap_recs[$i];
+for my $i ( 1 .. $#recs ) {
+  my $prev = $recs[ $i - 1 ];
+  my $cur  = $recs[$i];
   my $diff = $cur->{start} - $prev->{stop};
-  if ( $diff < -$epsilon ) {
-    printf "OVERLAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, -$diff / 3600.0;
-    $slot_issues++;
-    next;
-  }
   next if $diff <= $epsilon;
 
   printf "TEMPORAL GAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, $diff / 3600.0;
+  $temporal++;
+
+  next if $diff % $cadence_s > $epsilon;
 
   $backfills += _backfill_slot_range( $prev->{stop}, $cur->{start} );
-  $temporal++;
 }
 
-for my $rec (@gap_recs) {
+for my $rec (@recs) {
   next if $rec->{missing_count} == 0;
 
   printf {$patch_fh} "%s  %d  NaN  NaN\n", $rec->{t_start}, $_ for @{ $rec->{missing_wl} };
@@ -234,8 +199,7 @@ for my $rec (@gap_recs) {
 
   my ( $yy, $mm, $dd, $hh ) = ts2ymdh( $rec->{start} );
   for my $wl ( @{ $rec->{missing_wl} } ) {
-    my $fn = sprintf "$cfg->{check_gaps_dir}/limb/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb",
-      $yy, $mm, $dd, $yy, $mm, $dd, $hh, $wl;
+    my $fn = expected_limb_path( "$cfg->{check_gaps_dir}/limb", $yy, $mm, $dd, $hh, $wl );
     if ( -e $fn && -s $fn ) {
       print "# Skipping $yy-$mm-$dd $hh:00 $wl - limb file already exists\n";
       _generate_plot( $yy, $mm, $dd, $hh, $wl, $fn );
@@ -252,10 +216,26 @@ for my $rec (@gap_recs) {
 
 close $patch_fh or warn "Cannot close patch file '$patch_file': $!\n";
 
+if ( $temporal == 0 && $wl_gaps == 0 ) {
+  print "No gaps detected in $qt\n";
+}
+else {
+  print "---\n";
+  print "Temporal gaps: $temporal\n"   if $temporal;
+  print "Wavelength gaps: $wl_gaps\n"  if $wl_gaps;
+  print "Backfill slots: $backfills\n" if $backfills;
+  print 'Backfill failures: ', scalar @backfill_failures, "\n" if @backfill_failures;
+  if (@backfill_failures) {
+    print "Failed backfill slots:\n";
+    for my $failure (@backfill_failures) {
+      printf "  %d-%.2d-%.2d %.2d:00 UTC: %s\n",
+        $failure->{year}, $failure->{month}, $failure->{day}, $failure->{hour}, $failure->{reason};
+    }
+  }
+}
+
 if ( $temporal || $wl_gaps ) {
   print "\n# Staged outputs in $cfg->{check_gaps_dir}\n";
-  print "#   .limb files  -> $cfg->{check_gaps_dir}/limb/\n";
-  print "#   plots        -> $cfg->{check_gaps_dir}/limb/\n"         if $wl_gaps;
   print "#   masterpoint  -> $cfg->{check_gaps_dir}/stage/\n"        if $temporal;
   print "#   patch        -> $patch_file\n"                          if $wl_gaps;
   print "# Commit temporal gaps:\n"                                  if $temporal;
@@ -264,22 +244,16 @@ if ( $temporal || $wl_gaps ) {
   print "#   cat $patch_file | update_nans.pl\n"                     if $wl_gaps;
 }
 
-if ( $temporal == 0 && $wl_gaps == 0 && $slot_issues == 0 ) {
-  print "No gaps detected in $qt\n";
-}
-elsif ( $temporal || $slot_issues || @backfill_failures ) {
-  print "---\n";
-  print "Temporal gaps: $temporal\n"   if $temporal;
-  print "Backfill slots: $backfills\n" if $backfills;
-  print 'Backfill failures: ', scalar @backfill_failures, "\n" if @backfill_failures;
-  print "Slot issues: $slot_issues\n" if $slot_issues;
-  if (@backfill_failures) {
-    print "Failed backfill slots:\n";
-    for my $failure (@backfill_failures) {
-      printf "  %d-%.2d-%.2d %.2d:00 UTC: %s\n",
-        $failure->{year}, $failure->{month}, $failure->{day}, $failure->{hour}, $failure->{reason};
-    }
-  }
+sub _is_bad_value ( $v, $sentinel ) {
+  return 1 unless defined $v && length $v;
+  return 1 if $v =~ /^(?i:nan|missing)$/;
+  return 1 if defined $sentinel && $v eq $sentinel;
+  return 1
+    if defined $sentinel
+    && looks_like_number($v)
+    && looks_like_number($sentinel)
+    && 0 + $v == 0 + $sentinel;
+  return 0;
 }
 
 sub _backfill_slot_range ( $start, $stop ) {
@@ -307,13 +281,6 @@ sub _backfill_slot_range ( $start, $stop ) {
     $count++;
   }
   return $count;
-}
-
-sub _is_bridgeable_wrong_duration ( $rec, $issues ) {
-  return 0 unless @{$issues} == 1       && $issues->[0] eq 'wrong_duration';
-  return 0 unless defined $rec->{start} && defined $rec->{stop};
-  my $duration = $rec->{stop} - $rec->{start};
-  return $duration > $cadence_s && $duration % $cadence_s == 0;
 }
 
 sub _slot_has_limb_files ( $y, $m, $d, $h, $quiet = 0 ) {
@@ -434,6 +401,24 @@ sub _write_context_file ( $y, $m, $d, $h, $wl ) {
   return;
 }
 
+sub _exec_test_limbfit ( $y, $m, $d, $h, $wl ) {
+  my $limb_dir = "$cfg->{check_gaps_dir}/limb";
+  my @cmd      = (
+    $^X,       "$run_test", "-year=$y",   "-month=$m",
+    "-day=$d", "-hour=$h",  "-wavel=$wl", "-outroot=$limb_dir",
+    '-no-plots',
+  );
+  push @cmd, "-series=$image_series" if defined $image_series;
+  print "# @cmd\n";
+  return if $dry_run;
+  system(@cmd) == 0 or die "run_limbfit_test.pl failed for $y-$m-$d $h:00 ${wl}A: exit=$?\n";
+
+  my $limb = expected_limb_path( $limb_dir, $y, $m, $d, $h, $wl );
+  _generate_plot( $y, $m, $d, $h, $wl, $limb );
+  _write_context_file( $y, $m, $d, $h, $wl );
+  return;
+}
+
 sub _exec_limbfit ( $y, $m, $d, $h ) {
   my $limb_dir  = "$cfg->{check_gaps_dir}/limb";
   my $stage_dir = "$cfg->{check_gaps_dir}/stage";
@@ -498,23 +483,5 @@ sub _exec_limbfit ( $y, $m, $d, $h ) {
     _generate_plot( $y, $m, $d, $h, $wl, $limb );
     _write_context_file( $y, $m, $d, $h, $wl );
   }
-  return;
-}
-
-sub _exec_test_limbfit ( $y, $m, $d, $h, $wl ) {
-  my $limb_dir = "$cfg->{check_gaps_dir}/limb";
-  my @cmd      = (
-    $^X,       "$run_test", "-year=$y",   "-month=$m",
-    "-day=$d", "-hour=$h",  "-wavel=$wl", "-outroot=$limb_dir",
-    '-no-plots',
-  );
-  push @cmd, "-series=$image_series" if defined $image_series;
-  print "# @cmd\n";
-  return if $dry_run;
-  system(@cmd) == 0 or die "run_limbfit_test.pl failed for $y-$m-$d $h:00 ${wl}A: exit=$?\n";
-
-  my $limb = expected_limb_path( $limb_dir, $y, $m, $d, $h, $wl );
-  _generate_plot( $y, $m, $d, $h, $wl, $limb );
-  _write_context_file( $y, $m, $d, $h, $wl );
   return;
 }

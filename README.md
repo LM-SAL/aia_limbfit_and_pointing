@@ -168,20 +168,20 @@ To debug a single wavelength without triggering the full pipeline:
 **DRMS-level gap check:** Use `check_pointing_gaps.pl` to query the pointing table directly for temporal gaps and missing wavelengths:
 
 ```console
-    # Scan from 2010-11-01 to 7 days ago:
+    # Scan from 2010-11-01 to 7 days ago (backfills single missing slots automatically):
     ./check_pointing_gaps.pl
 
-    # Scan a specific range:
+    # Single day or explicit range:
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1
     ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 -end_year=2024 -end_month=6 -end_day=1
 
-    # For gaps before 2022-06-08, aia.lev1 is selected automatically;
-    # pass -image_series=aia.lev1 to force it for all slots:
-    ./check_pointing_gaps.pl -image_series=aia.lev1
+    # Report only (no backfill or limbfit):
+    ./check_pointing_gaps.pl -report-only
 
     # Only regenerate plots for existing .limb files:
     ./check_pointing_gaps.pl -plots
 
-    # Commit temporal gaps to DRMS:
+    # Commit backfilled temporal gaps to DRMS:
     ./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/stage
 
     # Commit wavelength gaps to DRMS:
@@ -490,20 +490,19 @@ This script is machine-local and is not stored in the repository; its path is se
 ### check_pointing_gaps.pl
 
 DRMS gap inventory for the pointing table.
-Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and all per-wavelength `A_www_X0`/`A_www_Y0` keywords, then reports three kinds of problems:
+Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and all per-wavelength `A_www_X0`/`A_www_Y0` keywords, then reports two kinds of problems:
 
-- **Temporal gaps** — missing 3-hour slots where consecutive records don't abut.
-- **Slot issues** — off-grid, wrong-duration, zero-duration, or overlapping records.
+- **Temporal gaps** — missing slots between consecutive records. Gaps that are a multiple of the cadence (3 h, 6 h, 9 h, …) are backfilled automatically; non-multiple gaps (e.g. from a corrupted T_STOP) are reported but left as-is.
 - **Wavelength gaps** — existing records where one or more wavelengths have bad values (NaN, MISSING, or the nan sentinel).
 
 When no start date is specified the script defaults to `2010-11-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
 
 ```console
-    ./check_pointing_gaps.pl                                       # full pipeline: report + execute + patch.txt
+    ./check_pointing_gaps.pl                                       # full run: report + backfill + patch.txt
     ./check_pointing_gaps.pl -year=2024 -month=3 -day=1           # single day (end defaults to same day)
     ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 \
       -end_year=2024 -end_month=6 -end_day=1                      # explicit range
-    ./check_pointing_gaps.pl -report-only                         # report without backfilling
+    ./check_pointing_gaps.pl -report-only                         # report gaps without running anything
     ./check_pointing_gaps.pl -plots                                # only regenerate plots
 ```
 
