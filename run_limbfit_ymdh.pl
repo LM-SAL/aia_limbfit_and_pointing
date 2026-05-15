@@ -84,7 +84,8 @@ for my $w ( @{ $cfg->{wl} } ) {
   );
 
   if ( $status != 0 ) {
-    warn "limbfit_aia failed for ${w}A at ${yr}-${mo}-${da} ${hr}:00 UTC (" . _status_text($status) . ")\n";
+    warn "limbfit_aia failed for ${w}A at ${yr}-${mo}-${da} ${hr}:00 UTC ("
+      . _status_text($status) . ")\n";
     unlink $outpath;
     $failed_any = 1;
     next;

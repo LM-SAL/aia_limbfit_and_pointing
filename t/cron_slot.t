@@ -16,6 +16,13 @@ ok( should_run_hour(0),  '00 UTC should run' );
 ok( should_run_hour(21), '21 UTC should run' );
 ok( !should_run_hour(22), '22 UTC should skip' );
 
+for my $h ( 3, 6, 9, 12, 15, 18 ) {
+  ok( should_run_hour($h), "$h UTC should run" );
+}
+for my $h ( 1, 2, 4, 5, 7, 8, 10, 11 ) {
+  ok( !should_run_hour($h), "$h UTC should skip" );
+}
+
 is( run_id( 2026, 5, 1, 3 ), '20260501_03', 'run id format' );
 is(
   pipeline_call( '/repo', 2026, 5, 1, 3 ),

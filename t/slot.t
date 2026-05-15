@@ -139,4 +139,46 @@ is( scalar( grep { $_->{type} eq 'gap' } @issues ), 1, 'missing slot is reported
 );
 is( scalar( grep { $_->{type} eq 'overlap' } @issues ), 1, 'overlapping records are reported' );
 
+is(
+  issues_string( slot_record_issues(
+    {
+      t_start => '2026-05-01T00:00:00Z',
+      t_stop  => '2026-05-01T01:00:00Z',
+    },
+    cadence_s => 10_800
+  ) ),
+  'off_grid_stop,wrong_duration',
+  'under-short 1h slot detected as wrong_duration and off_grid_stop'
+);
+
+@issues = slot_sequence_issues(
+  [
+    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
+    { t_start => '2026-05-01T06:00:00Z', t_stop => '2026-05-01T09:00:00Z' },
+    { t_start => '2026-05-01T15:00:00Z', t_stop => '2026-05-01T18:00:00Z' },
+  ],
+  cadence_s => 10_800
+);
+is( scalar( grep { $_->{type} eq 'gap' } @issues ), 2, 'two missing slots produce two gap issues' );
+
+@issues = slot_sequence_issues(
+  [
+    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
+    { t_start => '2026-05-01T03:00:02Z', t_stop => '2026-05-01T06:00:02Z' },
+  ],
+  cadence_s => 10_800, epsilon => 2
+);
+is( scalar( grep { $_->{type} eq 'gap' || $_->{type} eq 'overlap' } @issues ), 0,
+  'diff exactly at epsilon not reported as gap or overlap' );
+
+@issues = slot_sequence_issues(
+  [
+    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
+    { t_start => '2026-05-01T03:00:03Z', t_stop => '2026-05-01T06:00:03Z' },
+  ],
+  cadence_s => 10_800, epsilon => 2
+);
+is( scalar( grep { $_->{type} eq 'gap' } @issues ), 1,
+  'diff one second past epsilon is reported as gap' );
+
 done_testing;

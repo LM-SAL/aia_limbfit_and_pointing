@@ -63,4 +63,38 @@ is_deeply(
   'now_epoch plus buffer chooses end time'
 );
 
+@missing = missing_limb_paths(
+  fits_root   => $tmp,
+  wavelengths => [94],
+  cadence_h   => 3,
+  year        => 2026,
+  month       => 5,
+  day         => 1,
+  end_epoch   => timegm( 0, 0, 0, 1, 4, 2026 ),
+);
+is( scalar @missing, 0, 'start equal to end_epoch returns empty list' );
+
+@missing = missing_limb_paths(
+  fits_root   => $tmp,
+  wavelengths => [94],
+  cadence_h   => 3,
+  year        => 2026,
+  month       => 5,
+  day         => 1,
+  end_epoch   => timegm( 0, 0, 3, 1, 4, 2026 ),
+);
+is( scalar( grep { /20260501_03_0094/ } @missing ), 0, 'slot at end_epoch boundary is excluded' );
+
+@missing = missing_limb_paths(
+  fits_root   => $tmp,
+  wavelengths => [94],
+  cadence_h   => 3,
+  year        => 2026,
+  month       => 5,
+  day         => 1,
+  end_epoch   => timegm( 0, 0, 6, 1, 4, 2026 ),
+);
+is( scalar( grep { /20260501_03_0094/ } @missing ), 1, 'slot before end_epoch boundary is included' );
+is( scalar( grep { /20260501_06_0094/ } @missing ), 0, 'slot at end_epoch is excluded' );
+
 done_testing;

@@ -96,4 +96,41 @@ is_deeply(
   'KWD output lines'
 );
 
+( undef, undef, $xavg, $yavg ) = reduce_limb_points(
+  pdl( 10, 20 ),
+  pdl( 5, 15 ),
+  171,
+  \%cfg
+);
+is( $xavg, 15, 'two-point non-4500 bypasses sigma-clip: x average' );
+is( $yavg, 10, 'two-point non-4500 bypasses sigma-clip: y average' );
+
+( undef, undef, $xavg, $yavg ) = reduce_limb_points(
+  pdl( 1_234_567, 1_234_567 ),
+  pdl( 1_234_567, 1_234_567 ),
+  4500,
+  \%cfg
+);
+ok( $xavg != $xavg, '4500 all-sentinel -> NaN x average' );
+ok( $yavg != $yavg, '4500 all-sentinel -> NaN y average' );
+
+my %clip_all_cfg = ( %cfg, sigma_clip_pass1_sigma => 0 );
+( undef, undef, $xavg, $yavg ) = reduce_limb_points(
+  pdl( 0, 1, 3 ),
+  pdl( 0, 0, 0 ),
+  171,
+  \%clip_all_cfg
+);
+ok( $xavg != $xavg, 'pass1 sigma=0 clips all asymmetric points -> NaN x average' );
+ok( $yavg != $yavg, 'pass1 sigma=0 clips all asymmetric points -> NaN y average' );
+
+ok(
+  !detect_split_cluster(
+    pdl( 0, 0, 100 ),
+    pdl( 0, 0, 100 ),
+    \%cfg
+  ),
+  'three-point input (2 jumps) returns early from split detection'
+);
+
 done_testing;

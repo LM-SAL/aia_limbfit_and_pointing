@@ -26,10 +26,11 @@ return {
   drms_src_install_dir    => '/homef/nabil/JSOC-orig/src',
 
   # DRMS series and query - NRT
-  lev1_series => 'aia.lev1_nrt2',
-  mpt_series  => 'aia.master_pointing3h',
-  sdo_series  => 'sdo.master_pointing',
-  drms_filter => '[?MISSVALS<99?]',
+  lev1_series     => 'aia.lev1_nrt2',
+  lev1_nrt2_start => '2022-06-08T06:34:53Z',
+  mpt_series      => 'aia.master_pointing3h',
+  sdo_series      => 'sdo.master_pointing',
+  drms_filter     => '[?MISSVALS<99?]',
 
   # Deployment paths - NRT
   repo_root      => '/homef/nabil/Git/aia_limbfit_and_pointing',

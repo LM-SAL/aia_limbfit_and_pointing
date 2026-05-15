@@ -29,10 +29,8 @@ sub tstr2ts ($tstr) {
   my ( $hr, $mn, $sc ) = split /:/, $hms;
   return unless defined $yr && defined $mo && defined $da && defined $hr && defined $mn && defined $sc;
   $sc =~ s/Z$//;
-  my $ts;
-  try { $ts = timegm( $sc, $mn, $hr, $da, $mo - 1, $yr ) }
+  try { return timegm( $sc, $mn, $hr, $da, $mo - 1, $yr ) }
   catch ($e) { return undef }
-  return $ts;
 }
 
 sub ts2ymdh ($ts) {
@@ -41,7 +39,7 @@ sub ts2ymdh ($ts) {
 }
 
 sub drms_time ($trec) {
-  return sprintf '%c(%s)', 36, $trec;
+  return '$(' . $trec . ')';
 }
 
 sub parse_masterpoint_filename ($name) {

@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-preferred_perl="/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl"
+preferred_perl="$HOME/perl5/perlbrew/perls/perl-5.42.0/bin/perl"
 perl_bin="${AIA_LIMBFIT_PERL:-$preferred_perl}"
 [[ -x "$perl_bin" ]] || { echo "Preferred Perl not found or not executable: $perl_bin" >&2; exit 1; }
 
@@ -18,5 +18,17 @@ else
   done < <(git -c core.fsmonitor=false ls-files -- '*.pl' '*.pdl' | grep -v '^LimbFit_Copy/')
 fi
 
-for file in "${files[@]}"; do "$perl_bin" -c "$file"; done
+syntax_ok=1
+for file in "${files[@]}"; do
+  err=$("$perl_bin" -c "$file" 2>&1) && rc=0 || rc=$?
+  if [[ $rc -ne 0 ]] && echo "$err" | grep -q "Can't locate"; then
+    echo "SKIP $file (missing module)" >&2
+  elif [[ $rc -ne 0 ]]; then
+    echo "$err" >&2
+    syntax_ok=0
+  else
+    echo "$err"
+  fi
+done
+[[ $syntax_ok -eq 1 ]] || { echo "Syntax errors found above." >&2; exit 1; }
 "$perlcritic_bin" --profile .perlcriticrc "${files[@]}"

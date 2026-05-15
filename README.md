@@ -24,7 +24,6 @@ These are the user-facing scripts in the current repo root and `tools/` folder.
 | `update_nans.pl` | Patch a bad `.limb`, re-reduce it, and write the repaired master-pointing record. |
 | `check_pointing_gaps.pl` | Query `aia.master_pointing3h` in DRMS and report temporal gaps and missing wavelengths. |
 | `lf_inv.pl` | Scan for missing `.limb` files. |
-| `plot_limb.py` | Plot one diagnostic PNG directly from one raw `.limb` file. |
 | `tools/lint-perl.sh` | Syntax-check and lint tracked Perl / PDL scripts. |
 | `tools/format-perl.sh` | Format tracked Perl / PDL scripts with `perltidy`. |
 | `tools/lint-csh.sh` | Syntax-check tracked C shell scripts. |
@@ -169,13 +168,14 @@ To debug a single wavelength without triggering the full pipeline:
 **DRMS-level gap check:** Use `check_pointing_gaps.pl` to query the pointing table directly for temporal gaps and missing wavelengths:
 
 ```console
-    # Scan from 2010-11-01 to today:
+    # Scan from 2010-11-01 to 7 days ago:
     ./check_pointing_gaps.pl
 
     # Scan a specific range:
     ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 -end_year=2024 -end_month=6 -end_day=1
 
-    # For old gaps where NRT data is gone, force science-quality lev1:
+    # For gaps before 2022-06-08, aia.lev1 is selected automatically;
+    # pass -image_series=aia.lev1 to force it for all slots:
     ./check_pointing_gaps.pl -image_series=aia.lev1
 
     # Only regenerate plots for existing .limb files:
@@ -321,7 +321,7 @@ Key entries in the hashref include:
 - `fits_root` (where production `.limb` files are written)
 - `test_fits_root` (default output tree for `run_limbfit_test.pl`)
 - `pointing_dir` (default stage directory for `lf2mpr_nrt.pdl` and default source directory for `update3h_mpt.pl`; production flow overrides both via command-line arguments)
-- `lev1_series`, `drms_filter` (NRT DRMS query components)
+- `lev1_series`, `lev1_nrt2_start`, `drms_filter` (NRT DRMS query components; `lev1_nrt2_start` is the ISO-8601 epoch before which slots fall back to `aia.lev1`)
 - `limbfit_exe` (path to the `limbfit_aia` binary)
 - `mpt_series` / `sdo_series` (DRMS target and attitude reference series)
 - `wl` (wavelength list)
@@ -421,7 +421,7 @@ Options: `-inpdir`, `-outdir`, `-stgdir` (stage directory), `-stage` (copy to st
 
 #### Known edge cases
 
-- **Zero-scatter NaN (non-4500 Å)** — If a `.limb` file for 94–1700 Å contains 3+ perfectly identical `x0`/`y0` samples, the sigma-clipping standard deviation is zero. The strict `<` comparison in the pass-1 (and potentially pass-2) mask rejects every point, producing NaN centre values. 4500 Å is unaffected because it bypasses sigma clipping entirely.
+- **Zero-scatter (non-4500 Å)** — If a `.limb` file for 94–1700 Å contains 3+ perfectly identical `x0`/`y0` samples, the sigma-clipping standard deviation is zero. The rejection threshold is therefore zero, and the strict `<` comparison keeps all points (distance 0 is not less than threshold 0), so the mean is the common value — not NaN. 4500 Å is unaffected because it bypasses sigma clipping entirely.
 
 - **Old two-row 4500 Å sentinel leak (fixed)** — In previous versions the `nan_sentinel` filter for 4500 Å lived inside the sigma-clipping block, which is only entered when `dim(0) >= 3`. A 4500 Å file with only 1–2 rows would bypass the filter and average the sentinel value (`1234567`) into the result. The current code filters sentinels before the `< 3` shortcut, fixing this.
 
@@ -499,20 +499,25 @@ Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and
 When no start date is specified the script defaults to `2010-11-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
 
 ```console
-    ./check_pointing_gaps.pl                              # full pipeline: report + execute + patch.txt
-    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1   # specific range
-    ./check_pointing_gaps.pl -plots                       # only regenerate plots
+    ./check_pointing_gaps.pl                                       # full pipeline: report + execute + patch.txt
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1           # single day (end defaults to same day)
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 \
+      -end_year=2024 -end_month=6 -end_day=1                      # explicit range
+    ./check_pointing_gaps.pl -report-only                         # report without backfilling
+    ./check_pointing_gaps.pl -plots                                # only regenerate plots
 ```
 
 Options:
 
 | Option | Effect |
 | ------ | ------ |
-| `-year`, `-month`, `-day` | Start date (defaults to `2010-11-01`) |
-| `-end_year`, `-end_month`, `-end_day` | End date (defaults to today) |
+| `-year`, `-month`, `-day` | Start date (defaults to `2010-11-01`); if all three are given and no end date is set, end defaults to the same day |
+| `-end_year`, `-end_month`, `-end_day` | End date (defaults to 7 days ago) |
 | `-series=S` | Override target DRMS pointing series |
-| `-image_series=S` | Override image source series (default `aia.lev1_nrt2`; use `aia.lev1` for old gaps) |
+| `-image_series=S` | Override image source series (default `aia.lev1_nrt2`; auto-falls back to `aia.lev1` for slots before 2022-06-08) |
 | `-plots` | Only regenerate plots for existing `.limb` files |
+| `-report-only` | Print gap/issue report without running any backfill commands |
+| `-dry-run` | Print backfill commands without executing them |
 
 **Resume-safe behavior:** The script checks whether `.limb` files already exist before re-running a slot. If they exist and are non-empty the slot is skipped; if they are empty (0 bytes) they are removed and the slot is reprocessed. This makes it safe to re-run the same command after a partial failure.
 

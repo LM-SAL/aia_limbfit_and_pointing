@@ -78,11 +78,7 @@ sub run_limbfit_to_file (%args) {
   close $out_fh
     or die "Cannot close '$args{outpath}': $!\n";
 
-  if ( $status == -1 || $status != 0 ) {
-    unlink $args{outpath} if -e $args{outpath};
-    return $status;
-  }
-
+  unlink $args{outpath} if $status != 0 && -e $args{outpath};
   return $status;
 }
 

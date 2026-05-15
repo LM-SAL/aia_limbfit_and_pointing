@@ -11,19 +11,19 @@ use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg      = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-my @wl       = @{ $cfg->{wl} };
-my $dur      = $cfg->{cadence_h};
-my $mode     = '>';
-my $inpdir   = '/data1/tmp/LimbFits';
-my $outdir   = '/data1/tmp/mpt3h';
-my $stagedir = $cfg->{pointing_dir};
-my $email    = 0;
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my @wl          = @{ $cfg->{wl} };
+my $dur         = $cfg->{cadence_h};
+my $mode        = '>';
+my $inpdir      = '/data1/tmp/LimbFits';
+my $outdir      = '/data1/tmp/mpt3h';
+my $stagedir    = $cfg->{pointing_dir};
+my $email       = 0;
 my ( $inpnam, $stage );
-my ( $sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd ) = gmtime time - 3600;
+my ( undef, undef, undef, $da, $mo, $yr ) = gmtime time - 3600;
 $yr += 1900;
 $mo++;
-$hr = $mn = $sec = 0;
+my $hr = 0;
 GetOptions(
   'year=i'   => \$yr,
   'month=i'  => \$mo,

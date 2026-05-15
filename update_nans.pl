@@ -13,7 +13,7 @@ use Getopt::Long;
 #   grep ^2024 aia.master_pointing3h_miss.171 | ./update_nans.pl
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER} = $cfg->{sumserver};
 my $dry_run = 0;
 

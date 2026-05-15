@@ -7,7 +7,7 @@ use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER} = $cfg->{sumserver};
 local $ENV{SGE_ROOT}  = $cfg->{sge_root};
 local $ENV{TZ}        = $cfg->{tz};

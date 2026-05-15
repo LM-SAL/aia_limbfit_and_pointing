@@ -64,7 +64,7 @@ sub detect_split_cluster ( $x0, $y0, $cfg ) {
   my ( $xm2, $ym2 ) = ( $px2->avg, $py2->avg );
 
   my $scatter1 = sqrt( ( $px1 - $xm1 )->pow(2)->avg + ( $py1 - $ym1 )->pow(2)->avg );
-  my $scatter2 = sqrt( ( $px2 - $xm2 )->pow(2)->avg + ( $py2 - $ym2 )->avg );
+  my $scatter2 = sqrt( ( $px2 - $xm2 )->pow(2)->avg + ( $py2 - $ym2 )->pow(2)->avg );
   my $scatter  = $scatter1 > $scatter2 ? $scatter1 : $scatter2;
 
   my $jump_threshold = $ojm + ( $cfg->{split_cluster_jump_sigma} // 6 ) * $ojs;
