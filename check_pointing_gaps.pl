@@ -179,15 +179,20 @@ my @backfill_failures = ();
 for my $i ( 1 .. $#recs ) {
   my $prev = $recs[ $i - 1 ];
   my $cur  = $recs[$i];
-  my $diff = $cur->{start} - $prev->{stop};
-  next if $diff <= $epsilon;
 
-  printf "TEMPORAL GAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, $diff / 3600.0;
+  # Compare T_START to T_START so records with wrong T_STOP (e.g. 6h spans)
+  # don't produce false overlaps or missed gaps.
+  my $diff = $cur->{start} - $prev->{start};
+  next if $diff < $cadence_s - $epsilon;
+
+  next if $diff < $cadence_s + $epsilon;    # exactly one cadence: contiguous
+
+  printf "TEMPORAL GAP  %s  ->  %s  (%.2f h)\n", $prev->{t_start}, $cur->{t_start}, $diff / 3600.0;
   $temporal++;
 
   next if $diff % $cadence_s > $epsilon;
 
-  $backfills += _backfill_slot_range( $prev->{stop}, $cur->{start} );
+  $backfills += _backfill_slot_range( $prev->{start} + $cadence_s, $cur->{start} );
 }
 
 for my $rec (@recs) {

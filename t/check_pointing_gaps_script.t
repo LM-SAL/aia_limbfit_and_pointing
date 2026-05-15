@@ -44,6 +44,10 @@ print {$show_fh} "} elsif (\$scenario eq 'two_gaps') {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T06:00:00Z 2026-05-01T09:00:00Z 960.7 1024.5\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T12:00:00Z 2026-05-01T15:00:00Z 960.9 1024.7\\n};\n";
+print {$show_fh} "} elsif (\$scenario eq 'overlapping_spans') {\n";
+print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T06:00:00Z 960.5 1024.3\\n};\n";
+print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T09:00:00Z 960.6 1024.4\\n};\n";
+print {$show_fh} "  print qq{2026-05-01T06:00:00Z 2026-05-01T12:00:00Z 960.7 1024.5\\n};\n";
 print {$show_fh} "} elsif (\$scenario eq 'wl_gap') {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z NaN NaN\\n};\n";
@@ -106,14 +110,14 @@ print {$run_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
 print {$run_fh} "my %args;\n";
 print {$run_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
 print {$run_fh}
-  "if (\$ENV{FAKE_RUN_LOG}) { open my \$log_fh, '>>', \$ENV{FAKE_RUN_LOG} or die \"Cannot write FAKE_RUN_LOG: \$!\"; print {\$log_fh} (\$args{series} // q{}), \"\\n\"; close \$log_fh or die \"Cannot close FAKE_RUN_LOG: \$!\"; }\n";
+"if (\$ENV{FAKE_RUN_LOG}) { open my \$log_fh, '>>', \$ENV{FAKE_RUN_LOG} or die \"Cannot write FAKE_RUN_LOG: \$!\"; print {\$log_fh} (\$args{series} // q{}), \"\\n\"; close \$log_fh or die \"Cannot close FAKE_RUN_LOG: \$!\"; }\n";
 print {$run_fh}
-  "exit 3 if defined \$ENV{FAKE_RUN_FAIL_HOUR} && \$args{hour} == \$ENV{FAKE_RUN_FAIL_HOUR} && (\$args{series} // q{}) eq 'aia.lev1';\n";
+"exit 3 if defined \$ENV{FAKE_RUN_FAIL_HOUR} && \$args{hour} == \$ENV{FAKE_RUN_FAIL_HOUR} && (\$args{series} // q{}) eq 'aia.lev1';\n";
 print {$run_fh}
-  "my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
+"my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
 print {$run_fh} "make_path(\$dir);\n";
 print {$run_fh}
-  "my \$path = sprintf '%s/%d%02d%02d_%02d_0094.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
+"my \$path = sprintf '%s/%d%02d%02d_%02d_0094.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
 print {$run_fh} "open my \$fh, '>', \$path or die \"Cannot write \$path: \$!\";\n";
 print {$run_fh} "print {\$fh} \"ok\\n\" if (\$args{series} // q{}) eq 'aia.lev1';\n";
 print {$run_fh} "close \$fh or die \"Cannot close \$path: \$!\";\n";
@@ -128,11 +132,11 @@ print {$reduce_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
 print {$reduce_fh} "my %args;\n";
 print {$reduce_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
 print {$reduce_fh}
-  "my \$path = sprintf '%s/%d/%02d/%02d/%d%02d%02d_%02d_0094.limb', \$args{inpdir}, \$args{year}, \$args{month}, \$args{day}, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
+"my \$path = sprintf '%s/%d/%02d/%02d/%d%02d%02d_%02d_0094.limb', \$args{inpdir}, \$args{year}, \$args{month}, \$args{day}, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
 print {$reduce_fh} "die \"missing limb\\n\" unless -s \$path;\n";
 print {$reduce_fh} "make_path(\$args{outdir});\n";
 print {$reduce_fh}
-  "my \$out = sprintf '%s/masterpoint_%d%02d%02d_%02d00_3hcadence.txt', \$args{outdir}, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
+"my \$out = sprintf '%s/masterpoint_%d%02d%02d_%02d00_3hcadence.txt', \$args{outdir}, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
 print {$reduce_fh} "open my \$fh, '>', \$out or die \"Cannot write \$out: \$!\";\n";
 print {$reduce_fh} "print {\$fh} \"ok\\n\";\n";
 print {$reduce_fh} "close \$fh or die \"Cannot close \$out: \$!\";\n";
@@ -148,10 +152,10 @@ print {$test_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
 print {$test_fh} "my %args;\n";
 print {$test_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
 print {$test_fh}
-  "my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
+"my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
 print {$test_fh} "make_path(\$dir);\n";
 print {$test_fh}
-  "my \$path = sprintf '%s/%d%02d%02d_%02d_%04d.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour}, \$args{wavel};\n";
+"my \$path = sprintf '%s/%d%02d%02d_%02d_%04d.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour}, \$args{wavel};\n";
 print {$test_fh} "open my \$fh, '>', \$path or die \"Cannot write \$path: \$!\";\n";
 print {$test_fh} "print {\$fh} \"ok\\n\";\n";
 print {$test_fh} "close \$fh or die \"Cannot close \$path: \$!\";\n";
@@ -171,16 +175,16 @@ print {$gap_cfg_fh} "use v5.42;\nreturn {\n";
 print {$gap_cfg_fh} "  wl => [94],\n";
 print {$gap_cfg_fh} "  tz => 'UTC',\n";
 print {$gap_cfg_fh} "  sumserver => 'test',\n";
-print {$gap_cfg_fh} "  show_info => ",         perl_quote($show_info),    ",\n";
+print {$gap_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
 print {$gap_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
 print {$gap_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
 print {$gap_cfg_fh} "  cadence_h => 3,\n";
 print {$gap_cfg_fh} "  nan_sentinel => 1234567,\n";
-print {$gap_cfg_fh} "  check_gaps_dir => ",    perl_quote("$tmp/gap_check"), ",\n";
-print {$gap_cfg_fh} "  run_limbfit_ymdh => ",  perl_quote($fake_run),    ",\n";
-print {$gap_cfg_fh} "  run_limbfit_test => ",  perl_quote($fake_test),   ",\n";
-print {$gap_cfg_fh} "  lf2mpr_nrt => ",        perl_quote($fake_reduce), ",\n";
-print {$gap_cfg_fh} "  plot_limb => ",         perl_quote($fake_plot),   ",\n";
+print {$gap_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/gap_check"), ",\n";
+print {$gap_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),        ",\n";
+print {$gap_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),       ",\n";
+print {$gap_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),     ",\n";
+print {$gap_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),       ",\n";
 print {$gap_cfg_fh} "};\n";
 close $gap_cfg_fh or die "Cannot close $gap_config: $!";
 
@@ -195,10 +199,10 @@ is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for single-slot gap' 
   or diag $output;
 like(
   $output,
-  qr{TEMPORAL GAP\s+2026-05-01T03:00:00Z\s+->\s+2026-05-01T06:00:00Z\s+\(3\.00 h\)},
+  qr{TEMPORAL GAP\s+2026-05-01T00:00:00Z\s+->\s+2026-05-01T06:00:00Z\s+\(6\.00 h\)},
   'single-slot gap is reported'
 );
-like( $output, qr{Temporal gaps: 1}, 'temporal gap count is summarized' );
+like( $output, qr{Temporal gaps: 1},  'temporal gap count is summarized' );
 like( $output, qr{Backfill slots: 1}, 'single-slot gap triggers one backfill' );
 like(
   $output,
@@ -228,7 +232,7 @@ qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=202
 is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for non-multiple gap' ) or diag $output;
 like(
   $output,
-  qr{TEMPORAL GAP\s+2026-05-01T03:00:00Z\s+->\s+2026-05-01T08:00:00Z\s+\(5\.00 h\)},
+  qr{TEMPORAL GAP\s+2026-05-01T00:00:00Z\s+->\s+2026-05-01T08:00:00Z\s+\(8\.00 h\)},
   'non-multiple-of-cadence gap is reported'
 );
 unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'non-multiple gap does not trigger backfill' );
@@ -242,40 +246,48 @@ do {
   print {$multi_cfg_fh} "  wl => [94],\n";
   print {$multi_cfg_fh} "  tz => 'UTC',\n";
   print {$multi_cfg_fh} "  sumserver => 'test',\n";
-  print {$multi_cfg_fh} "  show_info => ",        perl_quote($show_info),        ",\n";
+  print {$multi_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
   print {$multi_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
   print {$multi_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
   print {$multi_cfg_fh} "  cadence_h => 3,\n";
   print {$multi_cfg_fh} "  nan_sentinel => 1234567,\n";
-  print {$multi_cfg_fh} "  check_gaps_dir => ", perl_quote("$tmp/multi_check"), ",\n";
-  print {$multi_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),    ",\n";
-  print {$multi_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),   ",\n";
-  print {$multi_cfg_fh} "  lf2mpr_nrt => ",      perl_quote($fake_reduce), ",\n";
-  print {$multi_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),   ",\n";
+  print {$multi_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/multi_check"), ",\n";
+  print {$multi_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),          ",\n";
+  print {$multi_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),         ",\n";
+  print {$multi_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),       ",\n";
+  print {$multi_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),         ",\n";
   print {$multi_cfg_fh} "};\n";
   close $multi_cfg_fh or die "Cannot close $multi_config: $!";
 
   local $ENV{AIA_LIMBFIT_CONFIG} = $multi_config;
   local $ENV{SHOW_INFO_SCENARIO} = 'multi_gap';
   my $multi_out =
-    qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
   is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for multi-slot gap' )
     or diag $multi_out;
   like(
     $multi_out,
-    qr{TEMPORAL GAP\s+2026-05-01T03:00:00Z\s+->\s+2026-05-01T09:00:00Z\s+\(6\.00 h\)},
+    qr{TEMPORAL GAP\s+2026-05-01T00:00:00Z\s+->\s+2026-05-01T09:00:00Z\s+\(9\.00 h\)},
     'multi-slot gap is reported'
   );
   like( $multi_out, qr{-hour=3\b}, 'multi-slot gap backfills first missing slot' );
   like( $multi_out, qr{-hour=6\b}, 'multi-slot gap backfills second missing slot' );
 };
 
+# --- overlapping 6h-span records staggered 3h apart: T_START diffs == cadence, no gap ---
+local $ENV{SHOW_INFO_SCENARIO} = 'overlapping_spans';
+$output =
+qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for overlapping-span records' )
+  or diag $output;
+like( $output, qr{No gaps detected}, '6h-span records staggered 3h apart produce no gap' );
+
 # --- -report-only suppresses backfill ---
 local $ENV{SHOW_INFO_SCENARIO} = 'single_gap';
 $output =
 qx("$^X" "$repo/check_pointing_gaps.pl" -report-only -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
 is( $? >> 8, 0, 'check_pointing_gaps.pl -report-only exits successfully' ) or diag $output;
-like(  $output, qr{TEMPORAL GAP},            '-report-only still prints gap' );
+like( $output, qr{TEMPORAL GAP}, '-report-only still prints gap' );
 unlike( $output, qr{run_limbfit_ymdh[.]pl}, '-report-only suppresses backfill commands' );
 
 # --- wavelength gap ---
@@ -294,7 +306,11 @@ ok( -s "$tmp/gap_check/patch.txt", 'patch file is written for wavelength gap' );
 open my $patch_fh, '<', "$tmp/gap_check/patch.txt" or die "Cannot read patch.txt: $!";
 my $patch = do { local $/; <$patch_fh> };
 close $patch_fh or die "Cannot close patch.txt: $!";
-like( $patch, qr{2026-05-01T03:00:00Z\s+94\s+NaN\s+NaN}, 'patch file contains wavelength gap entry' );
+like(
+  $patch,
+  qr{2026-05-01T03:00:00Z\s+94\s+NaN\s+NaN},
+  'patch file contains wavelength gap entry'
+);
 
 ok(
   -s "$tmp/gap_check/limb/2026/05/01/20260501_03_0094.limb",
@@ -308,16 +324,16 @@ print {$continue_cfg_fh} "use v5.42;\nreturn {\n";
 print {$continue_cfg_fh} "  wl => [94],\n";
 print {$continue_cfg_fh} "  tz => 'UTC',\n";
 print {$continue_cfg_fh} "  sumserver => 'test',\n";
-print {$continue_cfg_fh} "  show_info => ",        perl_quote($show_info),      ",\n";
+print {$continue_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
 print {$continue_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
 print {$continue_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
 print {$continue_cfg_fh} "  cadence_h => 3,\n";
 print {$continue_cfg_fh} "  nan_sentinel => 1234567,\n";
-print {$continue_cfg_fh} "  check_gaps_dir => ", perl_quote("$tmp/continue_check"), ",\n";
-print {$continue_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),    ",\n";
-print {$continue_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),   ",\n";
-print {$continue_cfg_fh} "  lf2mpr_nrt => ",      perl_quote($fake_reduce), ",\n";
-print {$continue_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),   ",\n";
+print {$continue_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/continue_check"), ",\n";
+print {$continue_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),             ",\n";
+print {$continue_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),            ",\n";
+print {$continue_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),          ",\n";
+print {$continue_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),            ",\n";
 print {$continue_cfg_fh} "};\n";
 close $continue_cfg_fh or die "Cannot close $continue_config: $!";
 
