@@ -83,46 +83,30 @@ masterpoints to a clean directory before invoking `update3h_mpt.pl`, as shown be
 slot's `T_START`/`T_STOP`, preserves newer DRMS records, and increments `VERSION`
 when replacing an existing record.
 
-### Example: one missing 3-hour slot
+### Gap examples
 
-This report means the 03:00–06:00 UTC slot is absent:
+This report means the 03:00–06:00 UTC slot is absent. Run the preview/repair
+sequence above with `-year=2026 -month=5 -day=1`, then inspect the generated
+`20260501_03_*.{limb,png}` files and staged masterpoint.
 
 ```text
 TEMPORAL GAP  2026-05-01T00:00:00Z  ->  2026-05-01T06:00:00Z  (6.00 h)
 ```
 
-Preview and generate the repair for that day:
-
-```console
-./check_pointing_gaps.pl -repair -dry-run \
-  -year=2026 -month=5 -day=1
-./check_pointing_gaps.pl -repair \
-  -year=2026 -month=5 -day=1
-```
-
-Inspect the `20260501_03_*.limb` files and PNGs under `$check_gaps_dir/limb/`,
-then review `$check_gaps_dir/stage/masterpoint_20260501_0430_3hcadence.txt`.
-
-### Example: one wavelength is NaN
-
-This report means the 171 Å result failed in the 03:00–06:00 UTC slot:
+This report means only 171 Å failed in that slot. The same repair sequence
+regenerates `20260501_03_0171.{limb,png}`, installs the reviewed `.limb`, and
+stages a complete masterpoint.
 
 ```text
 MISSING WAVELENGTHS  2026-05-01T03:00:00Z:  171
 ```
-
-Use the same preview/repair sequence. Repair mode regenerates only the missing
-wavelength, writes `20260501_03_0171.{limb,png}` under `$check_gaps_dir/limb/`,
-atomically installs the regenerated `.limb` in `fits_root`, and stages the complete
-slot masterpoint. Check its values before ingestion:
 
 ```console
 rg 'A_171_[XY]0' \
   /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_20260501_0430_3hcadence.txt
 ```
 
-Repair mode handles every reported gap in the requested day or range. To commit
-only this reviewed slot, copy it to a clean directory first:
+For either case, copy only the reviewed masterpoint before ingestion:
 
 ```console
 approved=$(mktemp -d)
@@ -230,35 +214,62 @@ reducer-compatible but is never applied automatically. `UNRESOLVED` is reserved
 for cases without two sufficiently close trusted anchors, where the tool has no
 defensible numeric estimate.
 
-For example, this conflict:
+For example, a conflict still produces an actionable file:
 
 ```text
 CONFLICT masterpoint_20260707_0430_3hcadence.txt 335 ...
 BEST_GUESS masterpoint_20260707_0430_3hcadence.txt 335 2040.554000 2046.711556 ... confidence=REVIEW_REQUIRED
 ```
 
-creates `masterpoint_20260707_0430_3hcadence.overrides.txt`. Review its comments
-and value, then regenerate the 03:00 slot in a temporary directory:
+For one reviewed failure, copy the masterpoint, edit only the failed wavelength
+using that override, inspect the diff, and preview ingestion:
 
 ```console
-override=./masterpoint_20260707_0430_3hcadence.overrides.txt
-work=$(mktemp -d)
+name=masterpoint_20260707_0430_3hcadence.txt
+srcdir=/surge40/nabil/LimbFit_c/mpt3h
+approved=$(mktemp -d)
 
-cat "$override"
+cp "$srcdir/$name" "$approved/$name"
+cat ./masterpoint_20260707_0430_3hcadence.overrides.txt
+${EDITOR:-vi} "$approved/$name"
+
+diff -u "$srcdir/$name" "$approved/$name"
+rg 'A_335_[XY]0' "$approved/$name"
+./update3h_mpt.pl -srcdir="$approved" -dry-run
+# Only after approving the two changed values:
+./update3h_mpt.pl -srcdir="$approved"
+```
+
+When every source limb exists, the reproducible alternative is to regenerate the
+slot with the same override, then inspect `$work` and pass it to
+`update3h_mpt.pl -dry-run` before publishing:
+
+```console
+work=$(mktemp -d)
 ./lf2mpr_nrt.pdl \
   -inpdir=/surge40/nabil/LimbFit_c/fits_nrt \
   -outdir="$work" \
   -year=2026 -month=7 -day=7 -hour=3 \
-  -require-all -override-file="$override"
-
-rg 'A_335_[XY]0' "$work/masterpoint_20260707_0430_3hcadence.txt"
-./update3h_mpt.pl -srcdir="$work" -dry-run
+  -require-all \
+  -override-file=./masterpoint_20260707_0430_3hcadence.overrides.txt
 ```
 
-Only after approving the generated values, publish them:
+If the wavelength is absent because its source limb file is missing, do not
+regenerate the masterpoint: the reducer cannot consume an override without that
+input. For `masterpoint_20260610_1930_3hcadence.txt`, copy the file as above and
+add only:
+
+```text
+KWD A_1600_X0	2049.983532
+KWD A_1600_Y0	2049.797014
+```
+
+After the diff, dry-run, and publish steps, confirm the 18:00 slot in DRMS
+(`aia_mpt_day 2026.06.10` if that local alias is installed):
 
 ```console
-./update3h_mpt.pl -srcdir="$work"
+show_info 'key=T_START,T_STOP,A_1600_X0,A_1600_Y0' \
+  'aia.master_pointing3h[2026.06.10/1d]' | column -t
 ```
 
 ### Split clusters
@@ -295,20 +306,6 @@ it does not reimplement reducer logic.
 
 It requires NumPy and Matplotlib. Use `--perl=/path/to/perl` outside the deployed
 JSOC environment.
-
-## Main files
-
-| File | Purpose |
-| --- | --- |
-| `cron_submit_slot.pl` | Cadenced production entry point |
-| `pipeline_slot_nrt.csh` | Three-stage production wrapper |
-| `run_limbfit_ymdh.pl` | All- or single-wavelength limb fitting |
-| `lf2mpr_nrt.pdl` | Limb reduction and masterpoint generation |
-| `suggest_nan_overrides.pl` | Reviewable values for failed masterpoints |
-| `update3h_mpt.pl` | Reviewed masterpoint ingestion into DRMS |
-| `check_pointing_gaps.pl` | Read-only reports and explicit repair staging |
-| `lf_inv.pl` | Filesystem limb inventory |
-| `plot_limb.py` | Raw diagnostics with real reducer status |
 
 ## Development
 

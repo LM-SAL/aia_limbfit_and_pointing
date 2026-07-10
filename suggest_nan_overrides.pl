@@ -112,7 +112,7 @@ sub _trusted_anchor {
       $masterpoint->{values}{$wavelength}{Y0}, $limb->{x}, $limb->{y}, $delta;
     return;
   }
-  return { record => $masterpoint, limb => $limb, delta => $delta };
+  return { record => $masterpoint };
 }
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
@@ -172,14 +172,13 @@ die "No valid masterpoint files found in '$srcdir'\n" unless @records;
 my %suggestions;
 my %limb_cache;
 my %evidence_opts = (
-  fits_root           => $fits_root,
-  radius_tolerance    => $radius_tolerance,
-  neighbor_tolerance  => $neighbor_tolerance,
-  agreement_tolerance => $agreement_tolerance,
-  min_limb_samples    => $min_limb_samples,
-  nan_sentinel        => $cfg->{nan_sentinel},
-  cfg                 => $cfg,
-  cache               => \%limb_cache,
+  fits_root          => $fits_root,
+  radius_tolerance   => $radius_tolerance,
+  neighbor_tolerance => $neighbor_tolerance,
+  min_limb_samples   => $min_limb_samples,
+  nan_sentinel       => $cfg->{nan_sentinel},
+  cfg                => $cfg,
+  cache              => \%limb_cache,
 );
 for my $i ( 0 .. $#records ) {
   my $target = $records[$i];
