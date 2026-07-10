@@ -1,12 +1,10 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use Test::More;
 
-sub perl_quote {
-  my ($value) = @_;
+sub perl_quote ($value) {
   $value =~ s/\\/\\\\/g;
   $value =~ s/'/\\'/g;
   return "'$value'";
@@ -37,8 +35,7 @@ my $show_info = "$bin/show_info";
 open my $show_fh, '>', $show_info or die "Cannot write $show_info: $!";
 print {$show_fh} <<'PERL';
 #!/usr/bin/env perl
-use strict;
-use warnings;
+use v5.42;
 
 if ($ENV{SHOW_INFO_LOG}) {
   open my $log_fh, '>>', $ENV{SHOW_INFO_LOG} or die "Cannot write SHOW_INFO_LOG: $!";
@@ -80,7 +77,7 @@ chmod 0755, $set_info or die "Cannot chmod $set_info: $!";
 
 my $config = "$tmp/config.pl";
 open my $cfg_fh, '>', $config or die "Cannot write $config: $!";
-print {$cfg_fh} "use strict;\nuse warnings;\nreturn {\n";
+print {$cfg_fh} "use v5.42;\nreturn {\n";
 print {$cfg_fh} "  tz => 'UTC',\n";
 print {$cfg_fh} "  sumserver => 'test',\n";
 print {$cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
@@ -175,7 +172,7 @@ close $bad_fh or die "Cannot close $bad_mp: $!";
 
 my $bad_config = "$tmp/bad_config.pl";
 open my $bad_cfg_fh, '>', $bad_config or die "Cannot write $bad_config: $!";
-print {$bad_cfg_fh} "use strict;\nuse warnings;\nreturn {\n";
+print {$bad_cfg_fh} "use v5.42;\nreturn {\n";
 print {$bad_cfg_fh} "  tz => 'UTC',\n";
 print {$bad_cfg_fh} "  sumserver => 'test',\n";
 print {$bad_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";

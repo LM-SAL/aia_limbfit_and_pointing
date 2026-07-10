@@ -22,10 +22,9 @@ These are the user-facing scripts in the current repo root and `tools/` folder.
 | `lf2mpr_nrt.pdl` | Reduce `.limb` files into `masterpoint_*.txt`. |
 | `update3h_mpt.pl` | Merge `masterpoint_*.txt` into `aia.master_pointing3h` in DRMS. |
 | `update_nans.pl` | Re-reduce an already regenerated `.limb` set and write the repaired master-pointing record. |
-| `suggest_nan_overrides.pl` | Suggest per-slot override values by interpolating between neighboring finite master-pointing files. |
+| `suggest_nan_overrides.pl` | Suggest per-slot override values from neighboring masterpoints and optional limb evidence. |
 | `check_pointing_gaps.pl` | Query `aia.master_pointing3h` in DRMS and report temporal gaps and missing wavelengths. |
 | `lf_inv.pl` | Scan for missing `.limb` files. |
-| `plot_limb.py` | Plot one diagnostic PNG directly from one raw `.limb` file. |
 | `tools/lint-perl.sh` | Syntax-check and lint tracked Perl / PDL scripts. |
 | `tools/format-perl.sh` | Format tracked Perl / PDL scripts with `perltidy`. |
 | `tools/lint-csh.sh` | Syntax-check tracked C shell scripts. |
@@ -81,7 +80,7 @@ To do this, `perlbrew` is the simplest way:
 ## crontab Entries
 
 ```console
-    1 * * * * /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+    1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 ```
 
 The above crontab listing is for user `nabil` on `solar4` at the Stanford JSOC-SDP.
@@ -98,7 +97,7 @@ In addition to limb fitting the images, the wrapper scripts call the shared redu
 An example interactive invocation is
 
 ```console
-    /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
+    /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
 ```
 
 for limb fitting with C.
@@ -106,7 +105,7 @@ for limb fitting with C.
 If you want to run the full near-real-time C shell wrapper directly instead of the Perl cron submitter, use `pipeline_slot_nrt.csh` with positional arguments `year month day hour`:
 
 ```console
-    /home/nabil/Git/aia_limbfit_and_pointing/pipeline_slot_nrt.csh 2026 3 28 0
+    /homef/nabil/Git/aia_limbfit_and_pointing/pipeline_slot_nrt.csh 2026 3 28 0
 ```
 
 ## Limb Fit Data Flow
@@ -170,21 +169,24 @@ To debug a single wavelength without triggering the full pipeline:
 **DRMS-level gap check:** Use `check_pointing_gaps.pl` to query the pointing table directly for temporal gaps and missing wavelengths:
 
 ```console
-    # Report gaps from 2010-06-01 to 7 days ago (no files or DRMS records changed):
+    # Scan from 2010-11-01 to 7 days ago (backfills single missing slots automatically):
     ./check_pointing_gaps.pl
 
-    # Scan a specific range:
+    # Single day or explicit range:
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1
     ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 -end_year=2024 -end_month=6 -end_day=1
 
-    # Explicitly regenerate old gaps and stage complete master-pointing files:
-    ./check_pointing_gaps.pl -repair -image_series=aia.lev1
+    # Report only (no backfill or limbfit):
+    ./check_pointing_gaps.pl -report-only
 
     # Only regenerate plots for existing .limb files:
     ./check_pointing_gaps.pl -plots
 
-    # Preview, then commit staged repairs to DRMS:
-    ./update3h_mpt.pl -dry-run -srcdir=/surge40/nabil/LimbFit_c/gaps/stage
+    # Commit backfilled temporal gaps to DRMS:
     ./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/stage
+
+    # Commit wavelength gaps to DRMS:
+    cat /surge40/nabil/LimbFit_c/gaps/patch.txt | ./update_nans.pl
 ```
 
 **Filesystem-level gap check:** Use `lf_inv.pl` to scan for missing `.limb` files:
@@ -214,10 +216,9 @@ Each missing file is reported as:
     ./cron_submit_slot.pl -y=2024 -mo=3 -d=28 -h=0
 ```
 
-**For one NaN wavelength in one 3-hour slot:** Regenerate only that wavelength, then re-reduce the complete slot and update DRMS. The hour is the slot start (`0`, `3`, `6`, ..., `21`). This example repairs 171 Å for the 2024-03-28 00:00–03:00 UTC slot:
+**For one NaN wavelength in one 3-hour slot:** Regenerate only that wavelength, then re-reduce the complete slot. The hour is the slot start (`0`, `3`, `6`, ..., `21`):
 
 ```console
-    # Preview and then regenerate only the affected .limb file.
     ./run_limbfit_test.pl \
       -year=2024 -month=3 -day=28 -hour=0 -wavel=171 \
       -series=aia.lev1 -outroot=/surge40/nabil/LimbFit_c/fits_nrt \
@@ -228,28 +229,14 @@ Each missing file is reported as:
       -series=aia.lev1 -outroot=/surge40/nabil/LimbFit_c/fits_nrt \
       -no-plots
 
-    # Re-reduce all available wavelengths for the slot in an isolated directory.
     work=$(mktemp -d)
     ./lf2mpr_nrt.pdl \
       -inpdir=/surge40/nabil/LimbFit_c/fits_nrt -outdir="$work" \
-      -year=2024 -month=3 -day=28 -hour=0
-    grep 'A_171_' "$work"/masterpoint_*.txt
-
-    # Preview the DRMS write, then commit it.
+      -year=2024 -month=3 -day=28 -hour=0 -require-all
     ./update3h_mpt.pl -srcdir="$work" -dry-run
-    ./update3h_mpt.pl -srcdir="$work"
 ```
 
-Use `-series=aia.lev1` for old data. For a recent slot that is still available in the NRT series, use `-series=aia.lev1_nrt2` instead.
-
-**For old gaps** (data only in `aia.lev1`, not `lev1_nrt2`): Run the explicit repair mode over a narrow date range, inspect the staged master-pointing files, then preview the DRMS update:
-
-```console
-    ./check_pointing_gaps.pl \
-      -year=2024 -month=3 -day=28 -end_year=2024 -end_month=3 -end_day=28 \
-      -image_series=aia.lev1 -repair
-    ./update3h_mpt.pl -dry-run -srcdir=/surge40/nabil/LimbFit_c/gaps/stage
-```
+For an old range, `check_pointing_gaps.pl -repair -image_series=aia.lev1` regenerates missing wavelengths, atomically installs them into `fits_root`, and stages complete masterpoint files. Inspect the stage and run `update3h_mpt.pl -dry-run` before committing to DRMS.
 
 #### Split-Cluster Remediation
 
@@ -329,7 +316,7 @@ Key entries in the hashref include:
 - `fits_root` (where production `.limb` files are written)
 - `test_fits_root` (default output tree for `run_limbfit_test.pl`)
 - `pointing_dir` (default stage directory for `lf2mpr_nrt.pdl` and default source directory for `update3h_mpt.pl`; production flow overrides both via command-line arguments)
-- `lev1_series`, `drms_filter` (NRT DRMS query components)
+- `lev1_series`, `lev1_nrt2_start`, `drms_filter` (NRT DRMS query components; `lev1_nrt2_start` is the ISO-8601 epoch before which slots fall back to `aia.lev1`)
 - `limbfit_exe` (path to the `limbfit_aia` binary)
 - `mpt_series` / `sdo_series` (DRMS target and attitude reference series)
 - `wl` (wavelength list)
@@ -361,7 +348,7 @@ On the current deployment this resolves to `/surge40/nabil/LimbFit_c/logs_nrt/YY
 
 ```console
     # crontab entry on solar4 (runs every hour, acts every 3 h):
-    1 * * * * /home/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+    1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 
     # manual back-fill for a specific 3-hour slot:
     ./cron_submit_slot.pl -y=2026 -mo=3 -d=28 -h=0
@@ -415,17 +402,16 @@ For non-4500 Å channels, the reducer also checks for obvious split-cluster file
 
 The 4500 Å channel is handled specially: sigma clipping is skipped entirely and rows matching `nan_sentinel` (1234567) are excluded instead.
 
-Output is appended to a single file per interval:
+Output is written atomically to a single file per interval:
 
 ```console
 $outdir/masterpoint_YYYYMMDD_HHMM_3hcadence.txt
 ```
 
 Each entry has the form `KWD A_WWW_X0  <value>` / `KWD A_WWW_Y0  <value>`.
-If one wavelength cannot be reduced, the output contains `NaN` for that wavelength and reduction continues for the other wavelengths. If `-email` is passed, an alert is sent to `$cfg->{mail_to}`. The production `pipeline_slot_nrt.csh` is the only caller that enables this.
-Output and stage files are written through temporary files and atomically renamed, so a failed reduction leaves the previous complete output untouched.
+If one wavelength cannot be reduced, that wavelength is written as `NaN` and the remaining wavelengths continue. Output and stage files use temporary files plus atomic renames, so a failed run preserves the previous complete output.
 
-To replace a failed wavelength with operator-selected values, provide a per-slot override file:
+For an operator-selected replacement, provide a per-slot override file:
 
 ```text
 # wavelength  x_center  y_center
@@ -436,13 +422,15 @@ To replace a failed wavelength with operator-selected values, provide a per-slot
 ./lf2mpr_nrt.pdl ... -override-file=/path/to/overrides.txt
 ```
 
-Overrides are used only when that wavelength fails or produces a non-finite result. Non-finite, duplicate, unconfigured, and unused overrides are rejected so a typo cannot silently replace a valid result. Keep the override file with the repair notes as the record of the manually selected values.
+Overrides are used only after that wavelength fails or produces a non-finite result. Invalid, duplicate, unconfigured, and unused overrides are rejected.
 
-Options: `-inpdir`, `-outdir`, `-stgdir` (stage directory), `-stage` (copy to stage), `-require-all` (fail if any configured wavelength is missing or empty), `-override-file` (manual values for failed wavelengths), `-year`, `-month`, `-day`, `-hour`, `-dur`.
+Options: `-inpdir`, `-outdir`, `-stgdir` (stage directory), `-stage` (copy to stage), `-require-all` (reject incomplete input sets), `-override-file`, `-year`, `-month`, `-day`, `-hour`, `-dur`.
 
 #### Known edge cases
 
-- **Interleaved multimodal centers** — A file can contain two interleaved center populations whose global mean lies between them. The historical zero-baseline pass-1 cutoff can then reject every point. The reducer reports the sample count and cutoff; `lf2mpr_nrt.pdl` writes NaN for that wavelength and continues the others. `data/20260707_03_0335.limb` is the regression fixture; selecting one population requires neighboring-channel context rather than silently averaging both.
+- **Zero-scatter (non-4500 Å)** — The inclusive `<=` clipping boundary retains identical points when both distance and threshold are zero, so their common centre remains finite.
+
+- **Interleaved multimodal centres** — A file can contain two interleaved populations whose global mean lies between them. If pass 1 rejects every point, the reducer reports the sample count and cutoff explicitly; `lf2mpr_nrt.pdl` writes `NaN` for that wavelength and continues. `data/20260707_03_0335.limb` is the regression fixture.
 
 - **Old two-row 4500 Å sentinel leak (fixed)** — In previous versions the `nan_sentinel` filter for 4500 Å lived inside the sigma-clipping block, which is only entered when `dim(0) >= 3`. A 4500 Å file with only 1–2 rows would bypass the filter and average the sentinel value (`1234567`) into the result. The current code filters sentinels before the `< 3` shortcut, fixing this.
 
@@ -478,7 +466,7 @@ The argument is any valid DRMS record-set query. Always verify the selection wit
 
 ### update_nans.pl
 
-Compatibility entry point for re-reducing an already regenerated production `.limb` set and updating `aia.master_pointing3h`. Prefer `check_pointing_gaps.pl -repair` for new repairs because it regenerates the missing wavelength, installs it atomically, and stages the complete slot for review.
+Compatibility entry point for re-reducing an already regenerated production `.limb` set and updating `aia.master_pointing3h`. Prefer `check_pointing_gaps.pl -repair` for new repairs because it installs the regenerated wavelength atomically and stages the complete slot.
 
 Reads whitespace-separated records from stdin:
 
@@ -486,26 +474,20 @@ Reads whitespace-separated records from stdin:
 YYYY-MM-DDTHH:MM:SSZ  wavelength  x_centre  y_centre
 ```
 
-For each record it:
-
-1. Requires the corresponding `.limb` file under `fits_root` to exist and be non-empty.
-2. Re-reduces the complete wavelength set through `lf2mpr_nrt.pdl -require-all` into `update_dir`.
-3. Commits the corrected result via `update3h_mpt.pl`.
+For each record it requires the corresponding production `.limb` file, re-reduces the complete configured wavelength set with `lf2mpr_nrt.pdl -require-all`, and runs `update3h_mpt.pl`.
 
 Typical workflow (as documented in `NotesLimbFit.txt`):
 
 ```console
     grep ^2024 /path/to/missing/aia.master_pointing3h_miss.171 \
-      | /home/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
+      | /homef/nabil/Git/aia_limbfit_and_pointing/update_nans.pl
 ```
 
-Use `-dry-run` to print the `lf2mpr_nrt.pdl` and `update3h_mpt.pl` commands without modifying files or DRMS. The script never edits `.limb` files.
+Use `-dry-run` to print the reducer and updater commands without modifying files or DRMS. The script never edits `.limb` files.
 
 ### suggest_nan_overrides.pl
 
-Scans local `masterpoint_*.txt` files for NaN, infinite, `MISSING`, or absent X/Y values. For each affected wavelength it finds the nearest finite file before and after the target slot and linearly interpolates X and Y using the slot-center timestamps.
-
-The default mode is read-only and prints each suggestion with its previous and next source files:
+Scans local `masterpoint_*.txt` files for non-finite or missing X/Y values and interpolates a candidate from the nearest finite records before and after the target. The default mode is read-only:
 
 ```console
 ./suggest_nan_overrides.pl \
@@ -513,16 +495,7 @@ The default mode is read-only and prints each suggestion with its previous and n
   -wavelength=335
 ```
 
-To write one reducer-compatible override file per affected slot:
-
-```console
-./suggest_nan_overrides.pl \
-  -srcdir=/surge40/nabil/LimbFit_c/mpt3h \
-  -wavelength=335 \
-  -outdir=/tmp/limbfit-overrides
-```
-
-Each generated file records the target, previous, and next masterpoint filenames in comments followed by `wavelength x_center y_center`. Review those sources before passing the file to `lf2mpr_nrt.pdl -override-file=...`; the script never modifies masterpoint files or DRMS. Interpolation is only a proposal—biased neighboring results, such as the bad-radius 335 Å population found around 2026-07-07, must be rejected manually.
+Add `-outdir=/tmp/limbfit-overrides` to write reducer-compatible override files. The script never modifies masterpoints or DRMS.
 
 For limb-aware suggestions, also provide the production limb root:
 
@@ -534,51 +507,45 @@ For limb-aware suggestions, also provide the production limb root:
   -outdir=/tmp/limbfit-overrides
 ```
 
-Limb-aware mode:
+Limb-aware mode filters invalid/radius-inconsistent samples, validates neighboring masterpoints against their own limb files, and writes an override only when the target limb centre agrees with temporal interpolation. `AGREE` is high confidence; `CONFLICT`, `SKIP_ANCHOR`, `NO_LIMB_CANDIDATE`, and `UNRESOLVED` write nothing.
 
-1. Filters non-finite/sentinel rows and rows whose fitted radius differs from `reference_radius` by more than `-radius-tolerance`.
-2. Runs the production center reducer on the remaining target samples.
-3. Validates each previous/next masterpoint candidate against its own filtered limb result; anchors differing by more than `-neighbor-tolerance` are skipped.
-4. Compares the target limb candidate with interpolation between the nearest trusted anchors.
-5. Writes an override only when the candidates differ by no more than `-agreement-tolerance` and labels it `HIGH` confidence.
-
-The default calibration is a 1-pixel radius tolerance, 0.75-pixel neighbor/agreement tolerances, at least 10 accepted limb samples, and anchors no more than 24 hours from the target. Override them with `-radius-tolerance`, `-neighbor-tolerance`, `-agreement-tolerance`, `-min-limb-samples`, and `-max-anchor-gap-hours`. The output statuses are:
-
-- `AGREE` — high-confidence override; a file is written when `-outdir` is supplied.
-- `CONFLICT` — limb and temporal candidates disagree; no file is written.
-- `SKIP_ANCHOR` — a neighboring masterpoint is inconsistent with its limb file.
-- `NO_LIMB_CANDIDATE` / `UNRESOLVED` — insufficient trustworthy evidence; no file is written.
+Defaults are a 1-pixel radius tolerance, 0.75-pixel neighbor/agreement tolerances, at least 10 accepted samples, and anchors within 24 hours. Override them with `-radius-tolerance`, `-neighbor-tolerance`, `-agreement-tolerance`, `-min-limb-samples`, and `-max-anchor-gap-hours`.
 
 ### check_pointing_gaps.pl
 
 DRMS gap inventory for the pointing table.
-Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and all per-wavelength `A_www_X0`/`A_www_Y0` keywords, then reports three kinds of problems:
+Queries `aia.master_pointing3h` (or another series) for `T_START`, `T_STOP`, and all per-wavelength `A_www_X0`/`A_www_Y0` keywords, then reports two kinds of problems:
 
-- **Temporal gaps** — missing 3-hour slots where consecutive records don't abut.
-- **Slot issues** — off-grid, wrong-duration, zero-duration, or overlapping records.
+- **Temporal gaps** — missing slots between consecutive records. Gaps that are a multiple of the cadence (3 h, 6 h, 9 h, …) are backfilled automatically; non-multiple gaps (e.g. from a corrupted T_STOP) are reported but left as-is.
 - **Wavelength gaps** — existing records where one or more wavelengths have bad values (NaN, MISSING, or the nan sentinel).
 
-When no start date is specified the script defaults to `2010-06-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
+When no start date is specified the script defaults to `2010-11-01`. When no end date is specified it defaults to **7 days ago** (the most recent complete week), so incomplete data at the tail end is ignored.
 
 ```console
-    ./check_pointing_gaps.pl                               # report only
-    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1    # report a specific range
-    ./check_pointing_gaps.pl -repair -image_series=aia.lev1 # regenerate and stage old gaps
-    ./check_pointing_gaps.pl -plots                        # only regenerate plots
+    ./check_pointing_gaps.pl                                       # full run: report + backfill + patch.txt
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1           # single day (end defaults to same day)
+    ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 \
+      -end_year=2024 -end_month=6 -end_day=1                      # explicit range
+    ./check_pointing_gaps.pl -report-only                         # report gaps without running anything
+    ./check_pointing_gaps.pl -plots                                # only regenerate plots
 ```
 
 Options:
 
 | Option | Effect |
 | ------ | ------ |
-| `-year`, `-month`, `-day` | Start date (defaults to `2010-06-01`) |
+| `-year`, `-month`, `-day` | Start date (defaults to `2010-11-01`); if all three are given and no end date is set, end defaults to the same day |
 | `-end_year`, `-end_month`, `-end_day` | End date (defaults to 7 days ago) |
 | `-series=S` | Override target DRMS pointing series |
-| `-image_series=S` | Override image source series (default `aia.lev1_nrt2`; use `aia.lev1` for old gaps) |
-| `-repair` | Regenerate missing data and stage complete master-pointing files; without this option the script only reports |
+| `-image_series=S` | Override image source series (default `aia.lev1_nrt2`; auto-falls back to `aia.lev1` for slots before 2022-06-08) |
+| `-repair` | For wavelength gaps, atomically install regenerated files into `fits_root` and reduce the complete production slot |
 | `-plots` | Only regenerate plots for existing `.limb` files |
+| `-report-only` | Print gap/issue report without running any backfill commands |
+| `-dry-run` | Print backfill commands without executing them |
 
-**Resume-safe behavior:** Existing complete limb sets are re-reduced instead of regenerated. Empty or incomplete sets are regenerated, and single-wavelength repairs are installed into `fits_root` with an atomic rename before the complete slot is reduced. DRMS is not changed automatically; the script prints separate preview and commit commands.
+**Resume-safe behavior:** The script checks whether `.limb` files already exist before re-running a slot. If they exist and are non-empty the slot is skipped; if they are empty (0 bytes) they are removed and the slot is reprocessed. This makes it safe to re-run the same command after a partial failure.
+
+**Patch file:** Wavelength gaps are written to `$check_gaps_dir/patch.txt` in `update_nans.pl` format. Use `-repair` for a complete regeneration/install/stage workflow, or feed the file to `update_nans.pl` only after the production limb set has already been regenerated.
 
 ### lf_inv.pl
 

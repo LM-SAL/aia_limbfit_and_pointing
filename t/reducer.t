@@ -1,5 +1,4 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use Test::More;
@@ -58,13 +57,8 @@ is( $yavg, 20, '4500 reduction filters sentinel before averaging y' );
   171,
   \%cfg
 );
-is( $xavg, 1, 'zero-scatter non-4500 data keeps its x average' );
-is( $yavg, 2, 'zero-scatter non-4500 data keeps its y average' );
-
-my ( $bimodal_x, $bimodal_y ) = rcols( "$Bin/../data/20260707_03_0335.limb", 0, 1 );
-eval { reduce_limb_points( $bimodal_x, $bimodal_y, 335, \%cfg ) };
-like( $@, qr{All 180 limb-fit points rejected by pass 1.*multimodal},
-  'bimodal real data fails explicitly instead of returning NaN' );
+is( $xavg, 1, 'zero-scatter non-4500 keeps finite x average' );
+is( $yavg, 2, 'zero-scatter non-4500 keeps finite y average' );
 
 ok(
   !detect_split_cluster( pdl( 0 .. 9 ), pdl( (0) x 10 ), \%cfg ),
@@ -101,6 +95,48 @@ is_deeply(
   [ kwd_lines( 171, 1.25, -2.5 ) ],
   [ "KWD A_171_X0\t1.250000\n", "KWD A_171_Y0\t-2.500000\n\n" ],
   'KWD output lines'
+);
+
+( undef, undef, $xavg, $yavg ) = reduce_limb_points(
+  pdl( 10, 20 ),
+  pdl( 5, 15 ),
+  171,
+  \%cfg
+);
+is( $xavg, 15, 'two-point non-4500 bypasses sigma-clip: x average' );
+is( $yavg, 10, 'two-point non-4500 bypasses sigma-clip: y average' );
+
+( undef, undef, $xavg, $yavg ) = reduce_limb_points(
+  pdl( 1_234_567, 1_234_567 ),
+  pdl( 1_234_567, 1_234_567 ),
+  4500,
+  \%cfg
+);
+ok( $xavg != $xavg, '4500 all-sentinel -> NaN x average' );
+ok( $yavg != $yavg, '4500 all-sentinel -> NaN y average' );
+
+my %clip_all_cfg = ( %cfg, sigma_clip_pass1_sigma => 0 );
+eval { reduce_limb_points(
+  pdl( 0, 1, 3 ),
+  pdl( 0, 0, 0 ),
+  171,
+  \%clip_all_cfg
+) };
+like( $@, qr{All 3 limb-fit points rejected by pass 1},
+  'pass1 rejection fails explicitly instead of returning NaN' );
+
+my ( $bimodal_x, $bimodal_y ) = rcols( "$Bin/../data/20260707_03_0335.limb", 0, 1 );
+eval { reduce_limb_points( $bimodal_x, $bimodal_y, 335, \%cfg ) };
+like( $@, qr{All 180 limb-fit points rejected by pass 1.*multimodal},
+  'bimodal real data fails explicitly instead of returning NaN' );
+
+ok(
+  !detect_split_cluster(
+    pdl( 0, 0, 100 ),
+    pdl( 0, 0, 100 ),
+    \%cfg
+  ),
+  'three-point input (2 jumps) returns early from split detection'
 );
 
 done_testing;

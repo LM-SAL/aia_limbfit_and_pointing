@@ -48,3 +48,6 @@ max_arguments = 6
 # Diagnostic print calls in pipeline scripts don't need return-value checks;
 # file open/close errors are already guarded with "or die" directly.
 [-InputOutput::RequireCheckedSyscalls]
+
+# All scripts use "use v5.42" intentionally for feature gating
+[-ValuesAndExpressions::ProhibitVersionStrings]

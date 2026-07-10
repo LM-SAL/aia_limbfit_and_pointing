@@ -26,7 +26,7 @@ require_cmd() {
 }
 
 collect_all_files() {
-  git ls-files -- '*.csh'
+  git -c core.fsmonitor=false ls-files -- '*.csh'
 }
 declare -a files=()
 

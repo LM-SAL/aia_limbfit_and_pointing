@@ -1,13 +1,11 @@
-use strict;
-use warnings;
+use v5.42;
 use FindBin qw($Bin);
 use File::Copy qw(copy);
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use Test::More;
 
-sub perl_quote {
-  my ($value) = @_;
+sub perl_quote ($value) {
   $value =~ s/\\/\\\\/g;
   $value =~ s/'/\\'/g;
   return "'$value'";
@@ -30,7 +28,7 @@ copy( "$repo/data/20260707_03_0335.limb", "$inp/2026/05/01/20260501_00_0335.limb
 
 my $config = "$tmp/config.pl";
 open my $cfg_fh, '>', $config or die "Cannot write $config: $!";
-print {$cfg_fh} "use strict;\nuse warnings;\nreturn {\n";
+print {$cfg_fh} "use v5.42;\nreturn {\n";
 print {$cfg_fh} "  wl => [335, 4500],\n";
 print {$cfg_fh} "  cadence_h => 3,\n";
 print {$cfg_fh} "  pointing_dir => ", perl_quote($stg), ",\n";
@@ -76,11 +74,77 @@ $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -in
 isnt( $? >> 8, 0, 'non-finite override is rejected' );
 like( $output, qr{Invalid override}, 'invalid override error is explicit' );
 
+my $empty_inp = "$tmp/empty_inp";
+my $empty_out = "$tmp/empty_out";
+my $empty_stg = "$tmp/empty_stage";
+make_path( $empty_inp, $empty_out, $empty_stg );
+
+my $stale_out = "$empty_out/masterpoint_20260501_0130_3hcadence.txt";
+open my $stale_out_fh, '>', $stale_out or die "Cannot write $stale_out: $!";
+print {$stale_out_fh} "stale\n";
+close $stale_out_fh or die "Cannot close $stale_out: $!";
+
+my $stale_stage = "$empty_stg/masterpoint_20260501_0130_3hcadence.txt";
+open my $stale_stage_fh, '>', $stale_stage or die "Cannot write $stale_stage: $!";
+print {$stale_stage_fh} "stale\n";
+close $stale_stage_fh or die "Cannot close $stale_stage: $!";
+
+my $empty_config = "$tmp/empty_config.pl";
+open my $empty_cfg_fh, '>', $empty_config or die "Cannot write $empty_config: $!";
+print {$empty_cfg_fh} "use v5.42;\nreturn {\n";
+print {$empty_cfg_fh} "  wl => [94],\n";
+print {$empty_cfg_fh} "  cadence_h => 3,\n";
+print {$empty_cfg_fh} "  pointing_dir => ", perl_quote($empty_stg), ",\n";
+print {$empty_cfg_fh} "  split_cluster_mode => 'ignore',\n";
+print {$empty_cfg_fh} "};\n";
+close $empty_cfg_fh or die "Cannot close $empty_config: $!";
+
+local $ENV{AIA_LIMBFIT_CONFIG} = $empty_config;
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$empty_inp" -outdir="$empty_out" -stage -stgdir="$empty_stg" 2>&1);
+cmp_ok( $? >> 8, '!=', 0, 'lf2mpr_nrt.pdl fails when no valid inputs are reduced' ) or diag $output;
+like( $output, qr/No usable limb files/, 'empty reducer run reports missing inputs' );
+ok( -e $stale_out,   'empty reducer run preserves previous output file' );
+ok( -e $stale_stage, 'empty reducer run preserves previous stage file' );
+
+my $copy_inp = "$tmp/copy_inp";
+my $copy_out = "$tmp/copy_out";
+my $copy_stg = "$tmp/copy_stage";
+make_path( "$copy_inp/2026/05/01", $copy_out, $copy_stg );
+
+my $copy_limb = "$copy_inp/2026/05/01/20260501_00_4500.limb";
+open my $copy_limb_fh, '>', $copy_limb or die "Cannot write $copy_limb: $!";
+print {$copy_limb_fh} "10 20\n";
+close $copy_limb_fh or die "Cannot close $copy_limb: $!";
+
+my $copy_config = "$tmp/copy_config.pl";
+open my $copy_cfg_fh, '>', $copy_config or die "Cannot write $copy_config: $!";
+print {$copy_cfg_fh} "use v5.42;\nreturn {\n";
+print {$copy_cfg_fh} "  wl => [4500],\n";
+print {$copy_cfg_fh} "  cadence_h => 3,\n";
+print {$copy_cfg_fh} "  pointing_dir => ", perl_quote($copy_stg), ",\n";
+print {$copy_cfg_fh} "  nan_sentinel => 1234567,\n";
+print {$copy_cfg_fh} "  split_cluster_mode => 'ignore',\n";
+print {$copy_cfg_fh} "};\n";
+close $copy_cfg_fh or die "Cannot close $copy_config: $!";
+
+chmod 0555, $copy_stg or die "Cannot chmod $copy_stg: $!";
+my $copy_exit;
+eval {
+    local $ENV{AIA_LIMBFIT_CONFIG} = $copy_config;
+    $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$copy_inp" -outdir="$copy_out" -stage -stgdir="$copy_stg" 2>&1);
+    $copy_exit = $? >> 8;
+};
+chmod 0755, $copy_stg or die "Cannot restore perms on $copy_stg: $!";
+die $@ if $@;
+cmp_ok( $copy_exit, '!=', 0, 'lf2mpr_nrt.pdl fails when the stage copy fails' ) or diag $output;
+like( $output, qr/Can't copy/, 'stage copy failure is reported' );
+ok( !-e "$copy_stg/masterpoint_20260501_0130_3hcadence.txt", 'stage copy failure leaves no stale staged output' );
+
 open my $old_fh, '>', $masterpoint or die "Cannot write $masterpoint: $!";
 print {$old_fh} "ORIGINAL\n";
 close $old_fh or die "Cannot close $masterpoint: $!";
 unlink "$inp/2026/05/01/20260501_00_0335.limb" or die "Cannot remove test fixture: $!";
-
+$ENV{AIA_LIMBFIT_CONFIG} = $config;
 $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$inp" -outdir="$out" -require-all 2>&1);
 isnt( $? >> 8, 0, 'require-all rejects an incomplete wavelength set' );
 like( $output, qr{Missing or empty limb files.*335A}, 'missing wavelength is reported' );

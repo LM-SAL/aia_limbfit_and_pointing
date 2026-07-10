@@ -10,7 +10,11 @@ if (-f /home/jsoc/.setJSOCenv) then
 endif
 setenv SUMSERVER k1
 source /SGE2/default/common/settings.csh
-source /home/nabil/Git/aia_limbfit_and_pointing/config.csh
+set script_dir = $0:h
+if ("$script_dir" == "") then
+  set script_dir = .
+endif
+source $script_dir/config.csh
 umask 0002
 mkdir -p $MPT_DIR $STAGE_DIR
 cd $REPO_ROOT

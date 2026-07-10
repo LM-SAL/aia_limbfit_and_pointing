@@ -5,8 +5,16 @@
 setenv SUMSERVER k1
 setenv TZ        UTC
 
-set PERL_BIN   = /home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-set REPO_ROOT  = /home/nabil/Git/aia_limbfit_and_pointing
+if ( -f /homef/nabil/perl5/perlbrew/etc/cshrc ) then
+  source /homef/nabil/perl5/perlbrew/etc/cshrc
+else
+  echo "Missing perlbrew cshrc: /homef/nabil/perl5/perlbrew/etc/cshrc"
+  exit 1
+endif
+rehash
+
+set PERL_BIN   = /homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+set REPO_ROOT  = /homef/nabil/Git/aia_limbfit_and_pointing
 set FITS_ROOT  = /surge40/nabil/LimbFit_c/fits_nrt
 set MPT_DIR    = /surge40/nabil/LimbFit_c/mpt3h
 set STAGE_DIR  = /surge40/nabil/LimbFit_c/stage

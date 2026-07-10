@@ -1,6 +1,5 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::CronSlot qw(default_slot_from_epoch pipeline_shell_command run_id should_run_hour);

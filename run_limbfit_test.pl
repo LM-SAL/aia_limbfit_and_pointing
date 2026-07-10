@@ -1,6 +1,5 @@
-#!/home/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use strict;
-use warnings;
+#!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
+use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::LimbfitCommand qw(
@@ -10,6 +9,7 @@ use AIALimbfit::LimbfitCommand qw(
   limbfit_query
   plot_command
   plot_path
+  run_limbfit_to_file
   validate_limbfit_args
   wavelength_sum
 );
@@ -59,8 +59,7 @@ validate_limbfit_args(
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
-sub _generate_plot {
-  my ($limb) = @_;
+sub _generate_plot ($limb) {
   return unless -s $limb;
 
   system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $limb, perl => $^X ) ) == 0
@@ -90,15 +89,22 @@ my $cmd     = limbfit_command(
 
 if ($dry_run) {
   print "$cmd\n";
-  print join( ' ',
+  print join( q{ },
     plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ),
     "\n"
     if $plots;
   exit 0;
 }
 
-if ( system($cmd) != 0 ) {
-  unlink $outpath;
+my $status = run_limbfit_to_file(
+  limbfit_exe => $cfg->{limbfit_exe},
+  query       => $qs,
+  sum         => $sum,
+  outpath     => $outpath,
+);
+
+if ( $status != 0 || !-e $outpath || !-s $outpath ) {
+  unlink $outpath if -e $outpath;
   die "limbfit_aia failed for ${w}A\n";
 }
 
