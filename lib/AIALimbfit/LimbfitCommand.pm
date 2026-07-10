@@ -3,6 +3,7 @@ package AIALimbfit::LimbfitCommand;
 use strict;
 use warnings;
 use Exporter qw(import);
+use Time::Local qw(timegm);
 
 our @EXPORT_OK = qw(
   dated_dir
@@ -13,6 +14,7 @@ our @EXPORT_OK = qw(
   plot_command
   plot_path
   shell_quote
+  validate_limbfit_args
   wavelength_sum
 );
 
@@ -41,6 +43,24 @@ sub limbfit_query {
 sub wavelength_sum {
   my ($wavelength) = @_;
   return $wavelength < 1500 ? 5 : $wavelength < 4000 ? 3 : 1;
+}
+
+sub validate_limbfit_args {
+  my (%args) = @_;
+  for my $name (qw(year month day hour)) {
+    die "Missing required option: --$name\n" unless defined $args{$name};
+  }
+
+  my $valid = eval { timegm( 0, 0, $args{hour}, $args{day}, $args{month} - 1, $args{year} ); 1 };
+  die sprintf "Invalid slot date/time: %d-%02d-%02d %02d:00 UTC\n",
+    @args{qw(year month day hour)}
+    unless $valid;
+
+  if ( defined $args{wavelength} && defined $args{wavelengths} ) {
+    die "Unsupported wavelength: $args{wavelength}\n"
+      unless grep { $_ == $args{wavelength} } @{ $args{wavelengths} };
+  }
+  return;
 }
 
 sub shell_quote {

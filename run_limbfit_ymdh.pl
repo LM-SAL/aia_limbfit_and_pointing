@@ -3,12 +3,14 @@ use strict;
 use warnings;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::LimbfitCommand qw(dated_dir limb_filename limbfit_command limbfit_query wavelength_sum);
+use AIALimbfit::LimbfitCommand qw(
+  dated_dir limb_filename limbfit_command limbfit_query validate_limbfit_args wavelength_sum
+);
 use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER}               = $cfg->{sumserver};
 local $ENV{SGE_ROOT}                = $cfg->{sge_root};
 local $ENV{DRMS_ROOT_DIR}           = $cfg->{drms_root_dir};
@@ -34,21 +36,34 @@ GetOptions(
   'dur=s'     => \$dur,
   'dry-run'   => \$dry_run,
   'plots!'    => \$plots,
-);
+) or die "Invalid options\n";
 $dur //= '3h';
+validate_limbfit_args( year => $yr, month => $mo, day => $da, hour => $hr );
 
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
+my $failed = 0;
 for my $w ( @{ $cfg->{wl} } ) {
   my $outnam = limb_filename( $yr, $mo, $da, $hr, $w );
   my $qs     = limbfit_query(
-    series => $series, year => $yr, month => $mo, day => $da, hour => $hr,
-    duration => $dur, wavelength => $w, filter => $filt,
+    series     => $series,
+    year       => $yr,
+    month      => $mo,
+    day        => $da,
+    hour       => $hr,
+    duration   => $dur,
+    wavelength => $w,
+    filter     => $filt,
   );
   my $sum     = wavelength_sum($w);
   my $outpath = "$outdir/$outnam";
-  my $cmd     = limbfit_command( limbfit_exe => $cfg->{limbfit_exe}, query => $qs, sum => $sum, outpath => $outpath );
+  my $cmd     = limbfit_command(
+    limbfit_exe => $cfg->{limbfit_exe},
+    query       => $qs,
+    sum         => $sum,
+    outpath     => $outpath
+  );
 
   if ($dry_run) {
     print "$cmd\n";
@@ -60,7 +75,9 @@ for my $w ( @{ $cfg->{wl} } ) {
   if ( $status != 0 ) {
     warn "limbfit_aia failed for ${w}A at ${yr}-${mo}-${da} ${hr}:00 UTC\n";
     unlink $outpath;
+    $failed = 1;
     next;
   }
 
 }
+exit 1 if $failed;

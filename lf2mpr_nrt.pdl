@@ -3,40 +3,86 @@ use strict;
 use warnings;
 use FindBin        qw($RealBin);
 use File::Basename qw(basename);
+use File::Copy     qw(copy);
 use lib "$RealBin/lib";
 use AIALimbfit::Reducer qw(kwd_lines limb_input_path masterpoint_filename reduce_limb_points);
 use PDL;
 use PDL::IO::Misc;
 use Getopt::Long;
-use File::Path qw(make_path);
+use File::Path   qw(make_path);
+use Scalar::Util qw(looks_like_number);
+
+sub _read_overrides {
+  my ($path) = @_;
+  return {} unless defined $path;
+  open my $fh, '<', $path or die "Cannot open override file '$path': $!\n";
+  my %overrides;
+  my $line_number = 0;
+  while (<$fh>) {
+    $line_number++;
+    s/#.*//;
+    next unless /\S/;
+    my ( $wavelength, $x_center, $y_center, @extra ) = split;
+    die "Invalid override at $path line $line_number; expected: wavelength x_center y_center\n"
+      if @extra
+      || !defined $wavelength
+      || !defined $x_center
+      || !defined $y_center
+      || $wavelength !~ /^\d+$/
+      || !looks_like_number($x_center)
+      || !looks_like_number($y_center)
+      || $x_center != $x_center
+      || $y_center != $y_center;
+    die "Duplicate override for ${wavelength}A in '$path'\n" if exists $overrides{$wavelength};
+    $overrides{$wavelength} = [ $x_center + 0, $y_center + 0 ];
+  }
+  close $fh or die "Cannot close override file '$path': $!\n";
+  return \%overrides;
+}
+
+sub _nan_kwd_lines {
+  my ($wavelength) = @_;
+  return (
+    sprintf( "KWD A_%.3d_X0\tNaN\n",   $wavelength ),
+    sprintf( "KWD A_%.3d_Y0\tNaN\n\n", $wavelength ),
+  );
+}
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-my @wl       = @{ $cfg->{wl} };
-my $dur      = $cfg->{cadence_h};
-my $mode     = '>';
-my $inpdir   = '/data1/tmp/LimbFits';
-my $outdir   = '/data1/tmp/mpt3h';
-my $stagedir = $cfg->{pointing_dir};
-my $email    = 0;
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my @wl          = @{ $cfg->{wl} };
+my $dur         = $cfg->{cadence_h};
+my $inpdir      = '/data1/tmp/LimbFits';
+my $outdir      = '/data1/tmp/mpt3h';
+my $stagedir    = $cfg->{pointing_dir};
+my $email       = 0;
+my $require_all = 0;
+my $override_file;
 my ( $inpnam, $stage );
 my ( $sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd ) = gmtime time - 3600;
 $yr += 1900;
 $mo++;
 $hr = $mn = $sec = 0;
 GetOptions(
-  'year=i'   => \$yr,
-  'month=i'  => \$mo,
-  'day=i'    => \$da,
-  'hour=i'   => \$hr,
-  'dur=i'    => \$dur,
-  'inpdir=s' => \$inpdir,
-  'outdir=s' => \$outdir,
-  'stage!'   => \$stage,
-  'stgdir=s' => \$stagedir,
-  'email'    => \$email,
-);
+  'year=i'          => \$yr,
+  'month=i'         => \$mo,
+  'day=i'           => \$da,
+  'hour=i'          => \$hr,
+  'dur=i'           => \$dur,
+  'inpdir=s'        => \$inpdir,
+  'outdir=s'        => \$outdir,
+  'stage!'          => \$stage,
+  'stgdir=s'        => \$stagedir,
+  'email'           => \$email,
+  'require-all'     => \$require_all,
+  'override-file=s' => \$override_file,
+) or die "Invalid options\n";
 umask 0002;
+
+my $overrides = _read_overrides($override_file);
+for my $w ( keys %{$overrides} ) {
+  die "Override wavelength ${w}A is not configured\n" unless grep { $_ == $w } @wl;
+}
 
 my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $dur );
 make_path( $outdir,   { chmod => oct('755') } ) unless -d $outdir;
@@ -44,7 +90,11 @@ make_path( $stagedir, { chmod => oct('755') } ) if $stage && !-d $stagedir;
 
 my $outnam       = "$outdir/$outbase";
 my $stage_outnam = "$stagedir/" . basename($outbase);
+my @missing      = grep { !-s limb_input_path( $inpdir, $yr, $mo, $da, $hr, $_ ) } @wl;
+die "Missing or empty limb files: " . join( ', ', map { "${_}A" } @missing ) . "\n"
+  if $require_all && @missing;
 
+my @kwd;
 foreach my $w (@wl) {
   $inpnam = limb_input_path( $inpdir, $yr, $mo, $da, $hr, $w );
   next unless -e $inpnam;
@@ -52,29 +102,56 @@ foreach my $w (@wl) {
   my ( $x0, $y0 ) = rcols $inpnam, 0, 1;
 
   my ( $xp2, $yp2, $xp2av, $yp2av ) = eval { reduce_limb_points( $x0, $y0, $w, $cfg ) };
-  if ($@) {
-    unlink $outnam       if -e $outnam;
-    unlink $stage_outnam if -e $stage_outnam;
-    die "Split-cluster detected for $inpnam (${w}A)\n" if $@ =~ /Split-cluster/;
-    die $@;
-  }
-
-  open my $fh, $mode, $outnam or die "Can't open '$outnam' for writing: $!\n";
-  print {$fh} kwd_lines( $w, $xp2av, $yp2av );
-  close $fh or die "Can't close '$outnam': $!\n";
-  system 'cp', $outnam, $stagedir if $stage;
-
-  if ( $email && ( $xp2av != $xp2av || $yp2av != $yp2av ) ) {
-    if (
-      open my $mail_fh,
-      q{|-}, q{mailx}, '-s',
-      "${w}A NaN result 3h MPT",
-      split( /,/, $cfg->{mail_to} )
-      )
-    {
-      print {$mail_fh} "${w}A NaN result 3h MPT\n$inpnam\n";
-      close $mail_fh or warn "mailx failed: $?\n";
+  my $failure   = $@;
+  my $nonfinite = !$failure && ( "$xp2av" =~ /(?:nan|inf)/i || "$yp2av" =~ /(?:nan|inf)/i );
+  if ( $failure || $nonfinite ) {
+    chomp $failure;
+    my $detail        = $failure || 'non-finite reducer result';
+    my $used_override = 0;
+    if ( my $override = delete $overrides->{$w} ) {
+      push @kwd, kwd_lines( $w, @{$override} );
+      warn "Using override for ${w}A after reducer failure: $detail\n";
+      $used_override = 1;
     }
+    else {
+      push @kwd, _nan_kwd_lines($w);
+      warn "Writing NaN for ${w}A; other wavelengths will continue: $detail\n";
+    }
+
+    if ( $email && !$used_override ) {
+      my @recipients = split /,/, ( $cfg->{mail_to} // q{} );
+      if ( open my $mail_fh, q{|-}, q{mailx}, '-s', "${w}A NaN result 3h MPT", @recipients ) {
+        print {$mail_fh} "${w}A NaN result 3h MPT\n$inpnam\n$detail\n";
+        close $mail_fh or warn "mailx failed: $?\n";
+      }
+    }
+    next;
   }
-  $mode = '>>';
+
+  push @kwd, kwd_lines( $w, $xp2av, $yp2av );
+}
+
+die "No usable limb files for $yr-$mo-$da $hr:00 UTC\n" unless @kwd;
+die "Unused overrides for wavelengths: "
+  . join( ', ', map { "${_}A" } sort { $a <=> $b } keys %{$overrides} ) . "\n"
+  if keys %{$overrides};
+
+my $out_tmp   = "$outnam.$$";
+my $stage_tmp = "$stage_outnam.$$";
+my $written   = eval {
+  open my $fh, '>', $out_tmp or die "Can't open '$out_tmp' for writing: $!\n";
+  print {$fh} @kwd;
+  close $fh or die "Can't close '$out_tmp': $!\n";
+  rename $out_tmp, $outnam or die "Can't replace '$outnam': $!\n";
+  if ($stage) {
+    copy( $outnam, $stage_tmp ) or die "Can't copy '$outnam' to '$stage_tmp': $!\n";
+    rename $stage_tmp, $stage_outnam or die "Can't replace '$stage_outnam': $!\n";
+  }
+  1;
+};
+if ( !$written ) {
+  my $error = $@ || "Unknown write failure\n";
+  unlink $out_tmp   if -e $out_tmp;
+  unlink $stage_tmp if -e $stage_tmp;
+  die $error;
 }

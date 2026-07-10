@@ -3,23 +3,24 @@ use strict;
 use warnings;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::Slot qw(slot_record_issues tstr2ts ts2ymdh);
+use AIALimbfit::Slot qw(iso8601 slot_record_issues tstr2ts ts2ymdh);
 use Getopt::Long;
 use Time::Local;
 use File::Basename qw(dirname);
+use File::Copy     qw(copy);
 use File::Path     qw(make_path);
 
 # Query aia.master_pointing3h (or another pointing series) and report
 # temporal gaps between consecutive T_START/T_STOP records,
 # plus any wavelengths that are missing within existing records.
 #
-# Default mode runs the full pipeline: reports gaps, executes back-fill,
-# generates plots, and writes a patch file for missing wavelengths.
+# Default mode only reports gaps.  -repair explicitly regenerates missing
+# limb files and stages complete master-pointing files for review.
 #   -plots     only regenerate plots for existing .limb files.
 #              Skips DRMS queries and limbfit execution.
 #
 # When no start date is given the script defaults to 2010-06-01.
-# When no end date is given the script defaults to today.
+# When no end date is given the script defaults to 7 days ago.
 #
 # Usage:
 #   ./check_pointing_gaps.pl
@@ -35,7 +36,7 @@ sub _is_bad_value {
 }
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{TZ} = $cfg->{tz};
 $ENV{SUMSERVER} //= $cfg->{sumserver};
 my $drms_bin_dir = dirname( $cfg->{show_info} );
@@ -80,6 +81,7 @@ my $start_explicit = 0;
 my $end_explicit   = 0;
 
 my $plots_only   = 0;
+my $repair       = 0;
 my $image_series = undef;
 
 GetOptions(
@@ -92,7 +94,8 @@ GetOptions(
   'series=s'       => \$series,
   'image_series=s' => \$image_series,
   'plots'          => \$plots_only,
-);
+  'repair'         => \$repair,
+) or die "Invalid options\n";
 
 my ( undef, undef, undef, $today_d, $today_m, $today_y ) = gmtime time;
 $today_y += 1900;
@@ -116,7 +119,7 @@ if ($end_explicit) {
 }
 else {
   # Default end date is 7 days ago (ignore last week, which may be incomplete)
-  my ( undef, undef, undef, $end_d, $end_m, $end_y ) = gmtime( time - 7 * 86400 );
+  my ( undef, undef, undef, $end_d, $end_m, $end_y ) = gmtime( time - 7 * 86_400 );
   $eyr = $end_y + 1900;
   $emo = $end_m + 1;
   $eda = $end_d;
@@ -129,9 +132,8 @@ if ($plots_only) {
 
 _validate_drms_runtime();
 
-make_path( $cfg->{check_gaps_dir}, { chmod => oct('755') } ) unless -d $cfg->{check_gaps_dir};
-my $patch_file = "$cfg->{check_gaps_dir}/patch.txt";
-open my $patch_fh, '>', $patch_file or die "Cannot open patch file '$patch_file': $!\n";
+make_path( $cfg->{check_gaps_dir}, { chmod => oct('755') } )
+  if $repair && !-d $cfg->{check_gaps_dir};
 
 printf "# Checking %s from %d-%.2d-%.2d to %d-%.2d-%.2d\n", $series, $yr, $mo, $da, $eyr, $emo,
   $eda;
@@ -179,9 +181,9 @@ for my $line (@lines) {
 
 @recs = sort { $a->{start} <=> $b->{start} } @recs;
 
-my $epsilon  = 2;
-my $temporal = 0;
-my $wl_gaps  = 0;
+my $epsilon     = 2;
+my $temporal    = 0;
+my $wl_gaps     = 0;
 my $slot_issues = 0;
 
 my @valid_recs;
@@ -195,23 +197,39 @@ for my $rec (@recs) {
   push @valid_recs, $rec;
 }
 
-for my $i ( 1 .. $#valid_recs ) {
-  my $prev = $valid_recs[ $i - 1 ];
-  my $cur  = $valid_recs[$i];
-  my $diff = $cur->{start} - $prev->{stop};
-  if ( $diff < -$epsilon ) {
-    printf "OVERLAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, -$diff / 3600.0;
-    $slot_issues++;
-    next;
+my $range_start = timegm( 0, 0, 0, $da,  $mo - 1,  $yr );
+my $range_stop  = timegm( 0, 0, 0, $eda, $emo - 1, $eyr ) + 86_400;
+my @gap_ranges;
+if (@valid_recs) {
+  push @gap_ranges, [ $range_start, $valid_recs[0]{start} ]
+    if $valid_recs[0]{start} - $range_start > $epsilon;
+  for my $i ( 1 .. $#valid_recs ) {
+    my $prev = $valid_recs[ $i - 1 ];
+    my $cur  = $valid_recs[$i];
+    my $diff = $cur->{start} - $prev->{stop};
+    if ( $diff < -$epsilon ) {
+      printf "OVERLAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, -$diff / 3600.0;
+      $slot_issues++;
+    }
+    elsif ( $diff > $epsilon ) {
+      push @gap_ranges, [ $prev->{stop}, $cur->{start} ];
+    }
   }
-  next if $diff <= $epsilon;
+  push @gap_ranges, [ $valid_recs[-1]{stop}, $range_stop ]
+    if $range_stop - $valid_recs[-1]{stop} > $epsilon;
+}
+else {
+  push @gap_ranges, [ $range_start, $range_stop ];
+}
 
-  printf "TEMPORAL GAP  %s  ->  %s  (%.2f h)\n", $prev->{t_stop}, $cur->{t_start}, $diff / 3600.0;
-
-  my $t = $prev->{stop};
-  while ( $t < $cur->{start} ) {
+for my $gap (@gap_ranges) {
+  my ( $start, $stop ) = @{$gap};
+  printf "TEMPORAL GAP  %s  ->  %s  (%.2f h)\n", iso8601($start), iso8601($stop),
+    ( $stop - $start ) / 3600.0;
+  my $t = $start;
+  while ( $t < $stop ) {
     my ( $yy, $mm, $dd, $hh ) = ts2ymdh($t);
-    _maybe_exec_limbfit( $yy, $mm, $dd, $hh );
+    _maybe_exec_limbfit( $yy, $mm, $dd, $hh ) if $repair;
     $t += $cadence_s;
   }
   $temporal++;
@@ -220,9 +238,10 @@ for my $i ( 1 .. $#valid_recs ) {
 for my $rec (@valid_recs) {
   next if $rec->{missing_count} == 0;
 
-  printf {$patch_fh} "%s  %d  NaN  NaN\n", $rec->{t_start}, $_ for @{ $rec->{missing_wl} };
-
   printf "MISSING WAVELENGTHS  %s:  %s\n", $rec->{t_start}, join ', ', @{ $rec->{missing_wl} };
+
+  $wl_gaps++;
+  next unless $repair;
 
   my ( $yy, $mm, $dd, $hh ) = ts2ymdh( $rec->{start} );
   for my $wl ( @{ $rec->{missing_wl} } ) {
@@ -231,6 +250,7 @@ for my $rec (@valid_recs) {
     if ( -e $fn && -s $fn ) {
       print "# Skipping $yy-$mm-$dd $hh:00 $wl — limb file already exists\n";
       _generate_plot( $yy, $mm, $dd, $hh, $wl, $fn );
+      _install_limb( $fn, $yy, $mm, $dd, $hh, $wl );
       next;
     }
     if ( -z $fn ) {
@@ -239,21 +259,20 @@ for my $rec (@valid_recs) {
     }
     _exec_test_limbfit( $yy, $mm, $dd, $hh, $wl );
   }
-  $wl_gaps++;
+  _reduce_limb_set( $fits_root, $yy, $mm, $dd, $hh );
 }
 
-close $patch_fh or warn "Cannot close patch file '$patch_file': $!\n";
-
-if ( $temporal || $wl_gaps ) {
+if ( $repair && ( $temporal || $wl_gaps ) ) {
   print "\n# Staged outputs in $cfg->{check_gaps_dir}\n";
-  print "#   .limb files  -> $cfg->{check_gaps_dir}/limb/\n";
-  print "#   plots        -> $cfg->{check_gaps_dir}/limb/\n"         if $wl_gaps;
-  print "#   masterpoint  -> $cfg->{check_gaps_dir}/stage/\n"        if $temporal;
-  print "#   patch        -> $patch_file\n"                          if $wl_gaps;
-  print "# Commit temporal gaps:\n"                                  if $temporal;
-  print "#   update3h_mpt.pl -srcdir=$cfg->{check_gaps_dir}/stage\n" if $temporal;
-  print "# Commit wavelength gaps:\n"                                if $wl_gaps;
-  print "#   cat $patch_file | update_nans.pl\n"                     if $wl_gaps;
+  print "#   gap .limb files -> $cfg->{check_gaps_dir}/limb/\n" if $temporal;
+  print "#   plots        -> $cfg->{check_gaps_dir}/limb/\n"    if $wl_gaps;
+  print "#   masterpoint  -> $cfg->{check_gaps_dir}/stage/\n";
+  print "# Preview and commit repairs:\n";
+  print "#   update3h_mpt.pl -dry-run -srcdir=$cfg->{check_gaps_dir}/stage\n";
+  print "#   update3h_mpt.pl -srcdir=$cfg->{check_gaps_dir}/stage\n";
+}
+elsif ( !$repair && ( $temporal || $wl_gaps ) ) {
+  print "\n# Report only; rerun with -repair to regenerate and stage repairs.\n";
 }
 
 if ( $temporal == 0 && $wl_gaps == 0 && $slot_issues == 0 ) {
@@ -261,7 +280,7 @@ if ( $temporal == 0 && $wl_gaps == 0 && $slot_issues == 0 ) {
 }
 elsif ( $temporal || $slot_issues ) {
   print "---\n";
-  print "Temporal gaps: $temporal\n" if $temporal;
+  print "Temporal gaps: $temporal\n"  if $temporal;
   print "Slot issues: $slot_issues\n" if $slot_issues;
 }
 
@@ -289,14 +308,15 @@ sub _slot_has_limb_files {
 sub _maybe_exec_limbfit {
   my ( $y, $m, $d, $h ) = @_;
   if ( _slot_has_limb_files( $y, $m, $d, $h ) ) {
-    print "# Skipping $y-$m-$d $h:00 — limb files already exist\n";
+    print "# Re-reducing existing limb files for $y-$m-$d $h:00\n";
+    _reduce_limb_set( "$cfg->{check_gaps_dir}/limb", $y, $m, $d, $h );
     return;
   }
   _exec_limbfit( $y, $m, $d, $h );
   return;
 }
 
-sub _generate_plot {    ## no critic (Subroutines::ProhibitManyArgs)
+sub _generate_plot {
   my ( $y, $m, $d, $h, $wl, $limb_path ) = @_;
   my $limb = $limb_path // sprintf '%s/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb',
     $fits_root, $y, $m, $d, $y, $m, $d, $h, $wl;
@@ -318,7 +338,7 @@ sub _generate_plot {    ## no critic (Subroutines::ProhibitManyArgs)
   return;
 }
 
-sub _plot_all_in_range {    ## no critic (Subroutines::ProhibitManyArgs)
+sub _plot_all_in_range {
   my ( $y0, $m0, $d0, $y1, $m1, $d1 ) = @_;
   my $start_ts = timegm( 0,  0,  0,  $d0, $m0 - 1, $y0 );
   my $end_ts   = timegm( 59, 59, 23, $d1, $m1 - 1, $y1 );
@@ -390,9 +410,8 @@ sub _write_context_file {
 
 sub _exec_limbfit {
   my ( $y, $m, $d, $h ) = @_;
-  my $limb_dir  = "$cfg->{check_gaps_dir}/limb";
-  my $stage_dir = "$cfg->{check_gaps_dir}/stage";
-  my @lf_cmd    = (
+  my $limb_dir = "$cfg->{check_gaps_dir}/limb";
+  my @lf_cmd   = (
     $^X, "$RealBin/run_limbfit_ymdh.pl",
     "-year=$y", "-month=$m", "-day=$d", "-hour=$h", "-outroot=$limb_dir", '-no-plots',
   );
@@ -400,12 +419,7 @@ sub _exec_limbfit {
   print "# @lf_cmd\n";
   system(@lf_cmd) == 0 or die "run_limbfit_ymdh.pl failed for $y-$m-$d $h:00: exit=$?\n";
 
-  my @red_cmd = (
-    $^X,        "$RealBin/lf2mpr_nrt.pdl", "-inpdir=$limb_dir", "-outdir=$stage_dir",
-    "-year=$y", "-month=$m",               "-day=$d",           "-hour=$h",
-  );
-  print "# @red_cmd\n";
-  system(@red_cmd) == 0 or die "lf2mpr_nrt.pdl failed for $y-$m-$d $h:00: exit=$?\n";
+  _reduce_limb_set( $limb_dir, $y, $m, $d, $h );
 
   for my $wl ( @{ $cfg->{wl} } ) {
     my $limb = sprintf '%s/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb',
@@ -413,6 +427,21 @@ sub _exec_limbfit {
     _generate_plot( $y, $m, $d, $h, $wl, $limb );
     _write_context_file( $y, $m, $d, $h, $wl );
   }
+  return;
+}
+
+sub _reduce_limb_set {
+  my ( $limb_dir, $y, $m, $d, $h ) = @_;
+  my $stage_dir = "$cfg->{check_gaps_dir}/stage";
+  my @red_cmd   = (
+    $^X,                 "$RealBin/lf2mpr_nrt.pdl",
+    "-inpdir=$limb_dir", "-outdir=$stage_dir",
+    "-year=$y",          "-month=$m",
+    "-day=$d",           "-hour=$h",
+    '-require-all',
+  );
+  print "# @red_cmd\n";
+  system(@red_cmd) == 0 or die "lf2mpr_nrt.pdl failed for $y-$m-$d $h:00: exit=$?\n";
   return;
 }
 
@@ -432,5 +461,23 @@ sub _exec_test_limbfit {
     $limb_dir, $y, $m, $d, $y, $m, $d, $h, $wl;
   _generate_plot( $y, $m, $d, $h, $wl, $limb );
   _write_context_file( $y, $m, $d, $h, $wl );
+
+  _install_limb( $limb, $y, $m, $d, $h, $wl );
+  return;
+}
+
+sub _install_limb {
+  my ( $limb, $y, $m, $d, $h, $wl ) = @_;
+  my $production = sprintf '%s/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb',
+    $fits_root, $y, $m, $d, $y, $m, $d, $h, $wl;
+  make_path( dirname($production), { chmod => oct('755') } ) unless -d dirname($production);
+  my $production_tmp = "$production.$$";
+  copy( $limb, $production_tmp ) or die "Cannot copy '$limb' to '$production_tmp': $!\n";
+  if ( !rename $production_tmp, $production ) {
+    my $error = $!;
+    unlink $production_tmp;
+    die "Cannot replace '$production': $error\n";
+  }
+  print "# installed $production\n";
   return;
 }

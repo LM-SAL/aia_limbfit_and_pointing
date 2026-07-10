@@ -4,6 +4,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use Test::More;
 use PDL;
+use PDL::IO::Misc;
 
 use AIALimbfit::Reducer qw(
   detect_split_cluster
@@ -57,7 +58,13 @@ is( $yavg, 20, '4500 reduction filters sentinel before averaging y' );
   171,
   \%cfg
 );
-ok( $xavg != $xavg && $yavg != $yavg, 'zero-scatter non-4500 current behavior produces NaN' );
+is( $xavg, 1, 'zero-scatter non-4500 data keeps its x average' );
+is( $yavg, 2, 'zero-scatter non-4500 data keeps its y average' );
+
+my ( $bimodal_x, $bimodal_y ) = rcols( "$Bin/../data/20260707_03_0335.limb", 0, 1 );
+eval { reduce_limb_points( $bimodal_x, $bimodal_y, 335, \%cfg ) };
+like( $@, qr{All 180 limb-fit points rejected by pass 1.*multimodal},
+  'bimodal real data fails explicitly instead of returning NaN' );
 
 ok(
   !detect_split_cluster( pdl( 0 .. 9 ), pdl( (0) x 10 ), \%cfg ),

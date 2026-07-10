@@ -40,12 +40,11 @@ sub limb_path {
 
 sub patch_commands {
   my ( $entry, %args ) = @_;
-  my $path = limb_path( $args{fits_root}, $entry );
   return (
-    [ 'sed', '-i', '-f', $args{lf_sed}, $path ],
     [
       $args{perl}, $args{lf2mpr}, '-inpdir', $args{fits_root}, '-outdir', $args{update_dir},
       '-y', $entry->{year}, '-mo', $entry->{month}, '-da', $entry->{day}, '-h', $entry->{hour},
+      '-require-all',
     ],
     [ $args{perl}, $args{update3h}, '-src', $args{update_dir}, '-ser', $args{series} ],
   );

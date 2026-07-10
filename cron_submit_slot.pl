@@ -8,7 +8,7 @@ use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER} = $cfg->{sumserver};
 local $ENV{SGE_ROOT}  = $cfg->{sge_root};
 local $ENV{TZ}        = $cfg->{tz};
@@ -26,6 +26,7 @@ exit unless should_run_hour($hr);
 my $log = $cfg->{logs_dir};
 make_path( $log, { chmod => oct('755') } ) unless -d $log;
 my $cmd = pipeline_shell_command( $cfg->{repo_root}, $log, $yr, $mo, $da, $hr );
+
 if ($dry_run) {
   print "$cmd\n";
   exit 0;

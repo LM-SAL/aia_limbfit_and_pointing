@@ -64,6 +64,79 @@ like(
 );
 like( $output, qr{Slot issues: 2}, 'invalid slot count is summarized' );
 unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'invalid records alone do not trigger backfill commands' );
-ok( -e "$tmp/check/patch.txt", 'patch file is created in check directory' );
+like( $output, qr{TEMPORAL GAP\s+2026-05-01T03:00:00Z\s+->\s+2026-05-02T00:00:00Z},
+  'gap detection includes the requested range boundary' );
+ok( !-e "$tmp/check", 'report-only mode creates no repair files' );
+
+my $repair_tmp = tempdir( CLEANUP => 1 );
+my $repair_drms = "$repair_tmp/drms";
+make_path(
+  "$repair_drms/bin/linux_avx2",
+  "$repair_drms/lib/linux_avx2",
+  "$repair_drms/include/base",
+  "$repair_drms/scripts",
+  "$repair_drms/src",
+);
+
+my $repair_show = "$repair_drms/bin/linux_avx2/show_info";
+open my $repair_show_fh, '>', $repair_show or die "Cannot write $repair_show: $!";
+print {$repair_show_fh} <<'PERL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+for my $hour ( 0, 3, 6, 9, 12, 15, 18, 21 ) {
+  my $start = sprintf '2026-05-01T%02d:00:00Z', $hour;
+  my $stop = $hour == 21 ? '2026-05-02T00:00:00Z' : sprintf '2026-05-01T%02d:00:00Z', $hour + 3;
+  my $xy = $hour == 3 ? 'NaN NaN' : '10 20';
+  print "$start $stop $xy\n";
+}
+PERL
+close $repair_show_fh or die "Cannot close $repair_show: $!";
+chmod 0755, $repair_show or die "Cannot chmod $repair_show: $!";
+
+my $fake_limbfit = "$repair_tmp/limbfit";
+open my $limbfit_fh, '>', $fake_limbfit or die "Cannot write $fake_limbfit: $!";
+print {$limbfit_fh} <<'PERL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print "10 20 30 0 2026-05-01T03:00:00Z 30\n" for 1 .. 3;
+PERL
+close $limbfit_fh or die "Cannot close $fake_limbfit: $!";
+chmod 0755, $fake_limbfit or die "Cannot chmod $fake_limbfit: $!";
+
+my $repair_config = "$repair_tmp/config.pl";
+open my $repair_cfg_fh, '>', $repair_config or die "Cannot write $repair_config: $!";
+print {$repair_cfg_fh} "use strict;\nuse warnings;\nreturn {\n";
+print {$repair_cfg_fh} "  wl => [94],\n";
+print {$repair_cfg_fh} "  tz => 'UTC',\n";
+print {$repair_cfg_fh} "  sumserver => 'test',\n";
+print {$repair_cfg_fh} "  sge_root => '/SGE',\n";
+print {$repair_cfg_fh} "  drms_root_dir => ", perl_quote($repair_drms), ",\n";
+print {$repair_cfg_fh} "  drms_params_install_dir => ", perl_quote("$repair_drms/include/base"), ",\n";
+print {$repair_cfg_fh} "  drms_scrs_install_dir => ", perl_quote("$repair_drms/scripts"), ",\n";
+print {$repair_cfg_fh} "  drms_src_install_dir => ", perl_quote("$repair_drms/src"), ",\n";
+print {$repair_cfg_fh} "  show_info => ", perl_quote($repair_show), ",\n";
+print {$repair_cfg_fh} "  limbfit_exe => ", perl_quote($fake_limbfit), ",\n";
+print {$repair_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
+print {$repair_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
+print {$repair_cfg_fh} "  cadence_h => 3,\n";
+print {$repair_cfg_fh} "  nan_sentinel => 1234567,\n";
+print {$repair_cfg_fh} "  split_cluster_mode => 'ignore',\n";
+print {$repair_cfg_fh} "  fits_root => ", perl_quote("$repair_tmp/fits"), ",\n";
+print {$repair_cfg_fh} "  test_fits_root => ", perl_quote("$repair_tmp/test"), ",\n";
+print {$repair_cfg_fh} "  pointing_dir => ", perl_quote("$repair_tmp/pointing"), ",\n";
+print {$repair_cfg_fh} "  check_gaps_dir => ", perl_quote("$repair_tmp/check"), ",\n";
+print {$repair_cfg_fh} "};\n";
+close $repair_cfg_fh or die "Cannot close $repair_config: $!";
+
+local $ENV{AIA_LIMBFIT_CONFIG} = $repair_config;
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+is( $? >> 8, 0, 'repair mode exits successfully' ) or diag $output;
+ok( -s "$repair_tmp/fits/2026/05/01/20260501_03_0094.limb",
+  'regenerated wavelength is installed in the production limb tree' );
+ok( -s "$repair_tmp/check/stage/masterpoint_20260501_0430_3hcadence.txt",
+  'repair mode stages a complete masterpoint file' );
+like( $output, qr{update3h_mpt[.]pl -dry-run}, 'repair mode prints a DRMS preview command' );
 
 done_testing;

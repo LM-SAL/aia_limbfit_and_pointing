@@ -138,6 +138,8 @@ like( $output, qr/ds=test\.series\[2026-05-01T00:00:00Z\]/,
   'VERSION=0 triggers update of existing record' );
 like( $output, qr/\bVERSION=1\b/,
   'VERSION=0 sets VERSION=1 on update' );
+like( $output, qr/\bA_171_X0=1[.]25\b/, 'VERSION=0 update includes repaired X keyword' );
+like( $output, qr/\bA_171_Y0=-2[.]50\b/, 'VERSION=0 update includes repaired Y keyword' );
 unlike( $output, qr/\bset_info\s+-c\b/, 'VERSION=0 does not create duplicate record' );
 
 # VERSION=1 existing record: create new with VERSION=2, correct T_STOP

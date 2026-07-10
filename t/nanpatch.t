@@ -38,21 +38,19 @@ is_deeply(
       fits_root  => '/tmp/fits',
       update_dir => '/tmp/update',
       series     => 'aia.master_pointing3h',
-      lf_sed     => '/tmp/lf.sed',
       perl       => '/usr/bin/perl',
       lf2mpr     => '/repo/lf2mpr_nrt.pdl',
       update3h   => '/repo/update3h_mpt.pl',
     )
   ],
   [
-    [ 'sed', '-i', '-f', '/tmp/lf.sed', '/tmp/fits/2026/05/01/20260501_03_0171.limb' ],
     [
       '/usr/bin/perl', '/repo/lf2mpr_nrt.pdl', '-inpdir', '/tmp/fits', '-outdir', '/tmp/update',
-      '-y', 2026, '-mo', 5, '-da', 1, '-h', 3,
+      '-y', 2026, '-mo', 5, '-da', 1, '-h', 3, '-require-all',
     ],
     [ '/usr/bin/perl', '/repo/update3h_mpt.pl', '-src', '/tmp/update', '-ser', 'aia.master_pointing3h' ],
   ],
-  'patch command arguments'
+  'repair command arguments do not depend on an external sed script'
 );
 
 done_testing;

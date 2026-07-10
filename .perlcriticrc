@@ -36,6 +36,15 @@ severity = 1
 [-InputOutput::ProhibitBarewordFileHandles]
 [-InputOutput::RequireBriefOpen]
 
+# These forms are concise and unambiguous in the small pipeline scripts
+[-BuiltinFunctions::ProhibitBooleanGrep]
+[-ValuesAndExpressions::ProhibitInterpolationOfLiterals]
+[-ValuesAndExpressions::ProhibitEmptyQuotes]
+
+# Private pipeline helpers sometimes pass one complete date/wavelength tuple
+[Subroutines::ProhibitManyArgs]
+max_arguments = 6
+
 # Diagnostic print calls in pipeline scripts don't need return-value checks;
 # file open/close errors are already guarded with "or die" directly.
 [-InputOutput::RequireCheckedSyscalls]

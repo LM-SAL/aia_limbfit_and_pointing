@@ -10,13 +10,14 @@ use AIALimbfit::LimbfitCommand qw(
   limbfit_query
   plot_command
   plot_path
+  validate_limbfit_args
   wavelength_sum
 );
 use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{SUMSERVER}               = $cfg->{sumserver};
 local $ENV{SGE_ROOT}                = $cfg->{sge_root};
 local $ENV{DRMS_ROOT_DIR}           = $cfg->{drms_root_dir};
@@ -44,8 +45,16 @@ GetOptions(
   'wavel=i'   => \$w,
   'plots!'    => \$plots,
   'dry-run'   => \$dry_run,
-);
+) or die "Invalid options\n";
 $dur //= '3h';
+validate_limbfit_args(
+  year        => $yr,
+  month       => $mo,
+  day         => $da,
+  hour        => $hr,
+  wavelength  => $w,
+  wavelengths => $cfg->{wl},
+);
 
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
@@ -61,20 +70,36 @@ sub _generate_plot {
 
 my $outnam = limb_filename( $yr, $mo, $da, $hr, $w );
 my $qs     = limbfit_query(
-  series => $series, year => $yr, month => $mo, day => $da, hour => $hr,
-  duration => $dur, wavelength => $w, filter => $filt,
+  series     => $series,
+  year       => $yr,
+  month      => $mo,
+  day        => $da,
+  hour       => $hr,
+  duration   => $dur,
+  wavelength => $w,
+  filter     => $filt,
 );
 my $sum     = wavelength_sum($w);
 my $outpath = "$outdir/$outnam";
-my $cmd     = limbfit_command( limbfit_exe => $cfg->{limbfit_exe}, query => $qs, sum => $sum, outpath => $outpath );
+my $cmd     = limbfit_command(
+  limbfit_exe => $cfg->{limbfit_exe},
+  query       => $qs,
+  sum         => $sum,
+  outpath     => $outpath
+);
 
 if ($dry_run) {
   print "$cmd\n";
-  print join( ' ', plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ), "\n" if $plots;
+  print join( ' ',
+    plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ),
+    "\n"
+    if $plots;
   exit 0;
 }
 
-system($cmd) == 0
-  or die "limbfit_aia failed for ${w}A\n";
+if ( system($cmd) != 0 ) {
+  unlink $outpath;
+  die "limbfit_aia failed for ${w}A\n";
+}
 
 _generate_plot($outpath) if $plots;

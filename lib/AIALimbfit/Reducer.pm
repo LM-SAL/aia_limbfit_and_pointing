@@ -136,22 +136,27 @@ sub reduce_limb_points {
     my $xd = $x0 - $x0->avg;
     my $dy = $y0 - $y0->avg;
     my $cd = sqrt( $xd * $xd + $dy * $dy );
-    my $mask =
-      which( $cd < $pass1_sigma * $cd->stdv + ( $pass1_baseline eq 'mean' ? $cd->avg : 0 ) );
+    my $pass1_cutoff = $pass1_sigma * $cd->stdv + ( $pass1_baseline eq 'mean' ? $cd->avg : 0 );
+    my $mask = which( $cd <= $pass1_cutoff );
     my $xp = $x0->index($mask);
     my $yp = $y0->index($mask);
     if ( $xp->dim(0) == 0 ) {
-      $xp2 = $xp;
-      $yp2 = $yp;
+      die sprintf
+        "All %d limb-fit points rejected by pass 1 (mean distance %.3f, cutoff %.3f); data may be multimodal\n",
+        $x0->dim(0), $cd->avg, $pass1_cutoff;
     }
     else {
       my $xdp = $xp - $xp->avg;
       my $ydp = $yp - $yp->avg;
       my $cp  = sqrt( $xdp * $xdp + $ydp * $ydp );
-      my $m2 =
-        which( $cp < $pass2_sigma * $cp->stdv + ( $pass2_baseline eq 'mean' ? $cp->avg : 0 ) );
+      my $pass2_cutoff = $pass2_sigma * $cp->stdv + ( $pass2_baseline eq 'mean' ? $cp->avg : 0 );
+      my $m2 = which( $cp <= $pass2_cutoff );
       $xp2 = $xp->index($m2);
       $yp2 = $yp->index($m2);
+      die sprintf
+        "All %d pass-1 limb-fit points rejected by pass 2 (mean distance %.3f, cutoff %.3f)\n",
+        $xp->dim(0), $cp->avg, $pass2_cutoff
+        if $xp2->dim(0) == 0;
     }
   }
 

@@ -44,7 +44,6 @@ return {
 
   # Deployment paths — NaN gap-fill
   update_dir => '/surge40/nabil/LimbFit_c/Update',
-  lf_sed     => '/home/nabil/sed/lf.sed',
 
   # Pipeline constants
   cadence_h => 3,

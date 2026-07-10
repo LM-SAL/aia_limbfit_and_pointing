@@ -5,10 +5,11 @@ use Getopt::Long;
 use FindBin        qw($RealBin);
 use File::Basename qw(dirname);
 use lib "$RealBin/lib";
-use AIALimbfit::Slot qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
+use AIALimbfit::Slot
+  qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{TZ} = $cfg->{tz};
 $ENV{SUMSERVER} //= $cfg->{sumserver};
 my $drms_bin_dir = dirname( $cfg->{show_info} );
@@ -68,7 +69,7 @@ my $masterpoint_re = qr{
 
 while ( my $mpu = shift @files ) {
   next unless $mpu =~ $masterpoint_re;
-  my $slot  = slot_bounds_from_masterpoint($mpu) or next;
+  my $slot        = slot_bounds_from_masterpoint($mpu) or next;
   my @slot_issues = slot_record_issues( $slot, cadence_s => ( $cfg->{cadence_h} // 3 ) * 3600 );
   if (@slot_issues) {
     warn "Skipping $mpu: invalid slot (" . join( ', ', @slot_issues ) . ")\n";
@@ -90,6 +91,16 @@ while ( my $mpu = shift @files ) {
   $kvsdo{T_STOP}  = $tstop;
   $kvsdo{VERSION} = 1;
 
+  my %mpkv;
+  open my $fh, '<', "$src/$mpu" or die "Can't open '$src/$mpu': $!\n";
+  while (<$fh>) {
+    my @pd = split;
+    $mpkv{ $pd[1] } = $pd[2] if /^KWD/;
+  }
+  close $fh or die "Can't close '$src/$mpu': $!\n";
+  die "No KWD values in '$src/$mpu'\n" unless %mpkv;
+  @kvsdo{ keys %mpkv } = values %mpkv;
+
   $qs    = series_contains_time_query( $series, $trec );
   @lines = _show_info( '-a', $qs );
 
@@ -106,17 +117,16 @@ while ( my $mpu = shift @files ) {
       $kvsdo{VERSION} = $kv{VERSION} + 1;
     }
     else {
-      my $d = iso8601();
+      my $d       = iso8601();
+      my @updates = ( 'DATE=' . $d, 'T_STOP=' . $kvsdo{T_STOP}, 'VERSION=1' );
+      push @updates, map { "$_=$mpkv{$_}" } sort keys %mpkv;
       if ($dry_run) {
-        print "$set_info ", sprintf('ds=%s[%s]', $series, $kv{T_START}), " DATE=$d T_STOP=$kvsdo{T_STOP} VERSION=1\n";
+        print "$set_info ", sprintf( 'ds=%s[%s]', $series, $kv{T_START} ), ' ',
+          join( ' ', @updates ), "\n";
       }
       else {
-        system(
-          $set_info,
-          sprintf( 'ds=%s[%s]', $series, $kv{T_START} ),
-          'DATE=' . $d,
-          'T_STOP=' . $kvsdo{T_STOP}, 'VERSION=1'
-        ) == 0 or warn "set_info update failed for $kv{T_START}: exit=$?\n";
+        system( $set_info, sprintf( 'ds=%s[%s]', $series, $kv{T_START} ), @updates, ) == 0
+          or warn "set_info update failed for $kv{T_START}: exit=$?\n";
       }
       next;
     }
@@ -125,16 +135,9 @@ while ( my $mpu = shift @files ) {
   $kvsdo{T_START} = $trec;
   $kvsdo{DATE}    = iso8601();
 
-  open my $fh, '<', "$src/$mpu" or die "Can't open '$src/$mpu': $!\n";
-  while (<$fh>) {
-    my @pd = split;
-    $kvsdo{ $pd[1] } = $pd[2] if /^KWD/;
-  }
-  close $fh or die "Can't close '\$src/$mpu': $!\n";
-
   if ($dry_run) {
     print "$set_info -c ds=$series";
-    for my $k (sort keys %kvsdo) {
+    for my $k ( sort keys %kvsdo ) {
       print " $k=$kvsdo{$k}";
     }
     print "\n";
