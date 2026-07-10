@@ -130,7 +130,16 @@ close $mixed_cfg_fh or die "Cannot close $mixed_cfg: $!";
 local $ENV{AIA_LIMBFIT_CONFIG} = $mixed_cfg;
 $out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
 is( $? >> 8, 0, 'run_limbfit_ymdh.pl succeeds when at least one wavelength succeeds' ) or diag $out;
-like( $out, qr{limbfit_aia failed for 94A}, 'ymdh partial failure is reported' );
+like( $out, qr{LIMBFIT START slot=2026-05-01T03:00Z wavelength=94A}, 'ymdh labels each run' );
+ok( index( $out, 'LIMBFIT FAIL slot=2026-05-01T03:00Z wavelength=94A status=exit 3' ) >= 0,
+  'ymdh labels wavelength failures' );
+like(
+  $out,
+  qr{LIMBFIT OK slot=2026-05-01T03:00Z wavelength=171A},
+  'ymdh labels wavelength successes'
+);
+ok( index( $out, 'LIMBFIT SUMMARY slot=2026-05-01T03:00Z succeeded=1 attempted=2 failed=94A' ) >= 0,
+  'ymdh summarizes the slot' );
 ok(
   !-e "$tmp/mixedfits/2026/05/01/20260501_03_0094.limb",
   'ymdh removes failed partial-run output file'
@@ -185,7 +194,11 @@ close $fail_cfg_fh or die "Cannot close $fail_cfg: $!";
 local $ENV{AIA_LIMBFIT_CONFIG} = $fail_cfg;
 $out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
 cmp_ok( $? >> 8, '!=', 0, 'run_limbfit_ymdh.pl fails when every wavelength fails' ) or diag $out;
-like( $out, qr{limbfit_aia failed for 94A},  'ymdh all-failed run reports the wavelength failure' );
+like(
+  $out,
+  qr{LIMBFIT FAIL .* wavelength=94A},
+  'ymdh all-failed run reports the wavelength failure'
+);
 like( $out, qr{failed for every wavelength}, 'ymdh all-failed run reports slot failure' );
 ok(
   !-e "$tmp/failfits/2026/05/01/20260501_03_0094.limb",

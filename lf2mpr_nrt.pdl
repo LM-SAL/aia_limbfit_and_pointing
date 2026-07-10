@@ -84,6 +84,7 @@ for my $w ( keys %{$overrides} ) {
 }
 
 my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $dur );
+my $slot    = sprintf '%04d-%02d-%02dT%02d:00Z', $yr, $mo, $da, $hr;
 make_path( $outdir,   { chmod => oct('755') } ) unless -d $outdir;
 make_path( $stagedir, { chmod => oct('755') } ) if $stage && !-d $stagedir;
 
@@ -93,7 +94,7 @@ my @missing      = grep { !-s limb_input_path( $inpdir, $yr, $mo, $da, $hr, $_ )
 die "Missing or empty limb files: " . join( ', ', map { "${_}A" } @missing ) . "\n"
   if $require_all && @missing;
 
-my @kwd;
+my ( @kwd, @nan_wavelengths );
 foreach my $w (@wl) {
   $inpnam = limb_input_path( $inpdir, $yr, $mo, $da, $hr, $w );
   next unless -e $inpnam;
@@ -113,7 +114,8 @@ foreach my $w (@wl) {
       $used_override = 1;
     }
     else {
-      push @kwd, _nan_kwd_lines($w);
+      push @kwd,             _nan_kwd_lines($w);
+      push @nan_wavelengths, $w;
       warn "Writing NaN for ${w}A; other wavelengths will continue: $detail\n";
     }
 
@@ -154,3 +156,5 @@ if ( !$written ) {
   unlink $stage_tmp if -e $stage_tmp;
   die $error;
 }
+my $nan = @nan_wavelengths ? join( q{,}, map { $_ . q{A} } @nan_wavelengths ) : 'none';
+warn "MASTERPOINT RESULT slot=$slot output=$outnam nan=$nan\n";

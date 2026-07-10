@@ -56,10 +56,11 @@ sub _status_text ($status) {
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
-my $attempted   = 0;
-my $succeeded   = 0;
-my $failed_any  = 0;
+my $attempted = 0;
+my $succeeded = 0;
+my @failed;
 my @wavelengths = defined $wavelength ? ($wavelength) : @{ $cfg->{wl} };
+my $slot        = sprintf '%04d-%02d-%02dT%02d:00Z', $yr, $mo, $da, $hr;
 
 for my $w (@wavelengths) {
   $attempted++;
@@ -92,6 +93,7 @@ for my $w (@wavelengths) {
     next;
   }
 
+  warn "LIMBFIT START slot=$slot wavelength=${w}A output=$outpath\n";
   my $status = run_limbfit_to_file(
     limbfit_exe => $cfg->{limbfit_exe},
     query       => $qs,
@@ -100,22 +102,22 @@ for my $w (@wavelengths) {
   );
 
   if ( $status != 0 ) {
-    warn "limbfit_aia failed for ${w}A at ${yr}-${mo}-${da} ${hr}:00 UTC ("
-      . _status_text($status) . ")\n";
+    warn "LIMBFIT FAIL slot=$slot wavelength=${w}A status=" . _status_text($status) . "\n";
     unlink $outpath;
-    $failed_any = 1;
+    push @failed, $w;
     next;
   }
 
   if ( !-e $outpath || !-s $outpath ) {
-    my $detail = -e $outpath ? "empty output file\n" : "no output file\n";
-    warn "limbfit_aia failed for ${w}A at ${yr}-${mo}-${da} ${hr}:00 UTC ($detail)";
+    my $detail = -e $outpath ? 'empty output file' : 'no output file';
+    warn "LIMBFIT FAIL slot=$slot wavelength=${w}A status=$detail\n";
     unlink $outpath if -e $outpath;
-    $failed_any = 1;
+    push @failed, $w;
     next;
   }
 
   $succeeded++;
+  warn "LIMBFIT OK slot=$slot wavelength=${w}A output=$outpath\n";
   system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) )
     == 0
     or warn "plot_limb.py failed for $outpath: exit=$?\n"
@@ -123,6 +125,8 @@ for my $w (@wavelengths) {
 }
 
 exit 0 if $dry_run;
-die "limbfit_aia failed for every wavelength at ${yr}-${mo}-${da} ${hr}:00 UTC\n"
-  if $attempted > 0 && $succeeded == 0 && $failed_any;
+my $failed = @failed ? join( q{,}, map { $_ . q{A} } @failed ) : 'none';
+warn "LIMBFIT SUMMARY slot=$slot succeeded=$succeeded attempted=$attempted failed=$failed\n";
+die "limbfit_aia failed for every wavelength at $slot\n"
+  if $attempted > 0 && $succeeded == 0 && @failed;
 exit 0;

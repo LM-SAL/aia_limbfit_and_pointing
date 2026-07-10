@@ -43,6 +43,8 @@ my $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 
 is( $? >> 8, 0, 'lf2mpr_nrt.pdl exits successfully' ) or diag $output;
 
 my $masterpoint = "$out/masterpoint_20260501_0130_3hcadence.txt";
+ok( index( $output, "MASTERPOINT RESULT slot=2026-05-01T00:00Z output=$masterpoint nan=335A" ) >= 0,
+  'reducer summarizes NaNs in the written masterpoint' );
 ok( -e $masterpoint, 'masterpoint file uses slot-center filename' );
 open my $mp_fh, '<', $masterpoint or die "Cannot read $masterpoint: $!";
 my $content = do { local $/; <$mp_fh> };
