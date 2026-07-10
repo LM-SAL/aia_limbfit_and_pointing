@@ -1,7 +1,7 @@
 package AIALimbfit::Slot;
 
 use v5.42;
-use Exporter qw(import);
+use Exporter    qw(import);
 use Time::Local qw(timegm);
 
 our @EXPORT_OK = qw(
@@ -11,7 +11,6 @@ our @EXPORT_OK = qw(
   series_contains_time_query
   slot_bounds_from_masterpoint
   slot_record_issues
-  slot_sequence_issues
   tstr2ts
   ts2ymdh
 );
@@ -27,7 +26,8 @@ sub tstr2ts ($tstr) {
   return unless defined $ymd && defined $hms;
   my ( $yr, $mo, $da ) = split /-/, $ymd;
   my ( $hr, $mn, $sc ) = split /:/, $hms;
-  return unless defined $yr && defined $mo && defined $da && defined $hr && defined $mn && defined $sc;
+  return
+    unless defined $yr && defined $mo && defined $da && defined $hr && defined $mn && defined $sc;
   $sc =~ s/Z$//;
   try { return timegm( $sc, $mn, $hr, $da, $mo - 1, $yr ) }
   catch ($e) { return undef }
@@ -64,7 +64,8 @@ sub slot_bounds_from_masterpoint ($source) {
 
   my $center_epoch;
   try {
-    $center_epoch = timegm( 0, $parts->{minute}, $parts->{hour}, $parts->{day}, $parts->{month} - 1, $parts->{year} );
+    $center_epoch = timegm( 0, $parts->{minute}, $parts->{hour}, $parts->{day}, $parts->{month} - 1,
+      $parts->{year} );
   }
   catch ($e) { return }
 
@@ -115,35 +116,6 @@ sub slot_record_issues ( $rec, %opts ) {
   }
   push @issues, 'off_grid_start' unless _is_on_grid( $start, $grid_h );
   push @issues, 'off_grid_stop'  unless _is_on_grid( $stop,  $grid_h );
-  return @issues;
-}
-
-sub slot_sequence_issues ( $records, %opts ) {
-  my $epsilon = $opts{epsilon} // 2;
-
-  my @issues;
-  for my $rec ( @{$records} ) {
-    my @record_issues = slot_record_issues( $rec, %opts );
-    push @issues, { type => 'invalid_record', record => $rec, issues => \@record_issues } if @record_issues;
-  }
-
-  my @sorted =
-    sort { _record_epoch( $a, 'start', 't_start' ) <=> _record_epoch( $b, 'start', 't_start' ) }
-    grep { defined _record_epoch( $_, 'start', 't_start' ) && defined _record_epoch( $_, 'stop', 't_stop' ) }
-    @{$records};
-
-  for my $i ( 1 .. $#sorted ) {
-    my $prev = $sorted[ $i - 1 ];
-    my $cur  = $sorted[$i];
-    my $diff = _record_epoch( $cur, 'start', 't_start' ) - _record_epoch( $prev, 'stop', 't_stop' );
-    if ( $diff > $epsilon ) {
-      push @issues, { type => 'gap', prev => $prev, cur => $cur, seconds => $diff };
-    }
-    elsif ( $diff < -$epsilon ) {
-      push @issues, { type => 'overlap', prev => $prev, cur => $cur, seconds => -$diff };
-    }
-  }
-
   return @issues;
 }
 

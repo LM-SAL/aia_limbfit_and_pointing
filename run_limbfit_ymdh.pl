@@ -3,7 +3,7 @@ use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::LimbfitCommand
-  qw(dated_dir limb_filename limbfit_command limbfit_query run_limbfit_to_file validate_limbfit_args wavelength_sum);
+  qw(dated_dir limb_filename limbfit_command limbfit_query plot_command run_limbfit_to_file validate_limbfit_args wavelength_sum);
 use Getopt::Long;
 use File::Path qw(make_path);
 
@@ -17,11 +17,10 @@ local $ENV{DRMS_SCRS_INSTALL_DIR}   = $cfg->{drms_scrs_install_dir};
 local $ENV{DRMS_SRC_INSTALL_DIR}    = $cfg->{drms_src_install_dir};
 
 my ( $yr, $mo, $hr, $da, $dur );
-my $filt    = $cfg->{drms_filter};
-my $outroot = $cfg->{fits_root};
-my $series  = $cfg->{lev1_series};
+my $filt = $cfg->{drms_filter};
+my ( $outroot, $series, $wavelength );
 my $dry_run = 0;
-my $plots   = 0;
+my $plots;
 
 GetOptions(
   'filter=s'  => \$filt,
@@ -32,11 +31,22 @@ GetOptions(
   'day=i'     => \$da,
   'hour=i'    => \$hr,
   'dur=s'     => \$dur,
+  'wavel=i'   => \$wavelength,
   'dry-run'   => \$dry_run,
   'plots!'    => \$plots,
 ) or die "Invalid options\n";
-$dur //= '3h';
-validate_limbfit_args( year => $yr, month => $mo, day => $da, hour => $hr );
+$dur     //= '3h';
+$outroot //= defined $wavelength ? $cfg->{test_fits_root} : $cfg->{fits_root};
+$series  //= defined $wavelength ? 'aia.lev1'             : $cfg->{lev1_series};
+$plots   //= defined $wavelength ? 1                      : 0;
+validate_limbfit_args(
+  year        => $yr,
+  month       => $mo,
+  day         => $da,
+  hour        => $hr,
+  wavelength  => $wavelength,
+  wavelengths => $cfg->{wl},
+);
 
 sub _status_text ($status) {
   return 'signal ' . ( $status & 127 ) if $status & 127;
@@ -46,11 +56,12 @@ sub _status_text ($status) {
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
-my $attempted  = 0;
-my $succeeded  = 0;
-my $failed_any = 0;
+my $attempted   = 0;
+my $succeeded   = 0;
+my $failed_any  = 0;
+my @wavelengths = defined $wavelength ? ($wavelength) : @{ $cfg->{wl} };
 
-for my $w ( @{ $cfg->{wl} } ) {
+for my $w (@wavelengths) {
   $attempted++;
   my $outnam = limb_filename( $yr, $mo, $da, $hr, $w );
   my $qs     = limbfit_query(
@@ -74,6 +85,10 @@ for my $w ( @{ $cfg->{wl} } ) {
 
   if ($dry_run) {
     print "$cmd\n";
+    print join( q{ },
+      plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ),
+      "\n"
+      if $plots;
     next;
   }
 
@@ -101,6 +116,10 @@ for my $w ( @{ $cfg->{wl} } ) {
   }
 
   $succeeded++;
+  system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) )
+    == 0
+    or warn "plot_limb.py failed for $outpath: exit=$?\n"
+    if $plots;
 }
 
 exit 0 if $dry_run;

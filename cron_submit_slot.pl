@@ -1,8 +1,6 @@
 #!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
 use v5.42;
 use FindBin qw($RealBin);
-use lib "$RealBin/lib";
-use AIALimbfit::CronSlot qw(default_slot_from_epoch pipeline_shell_command run_id should_run_hour);
 use Getopt::Long;
 use File::Path qw(make_path);
 
@@ -13,7 +11,9 @@ local $ENV{SGE_ROOT}  = $cfg->{sge_root};
 local $ENV{TZ}        = $cfg->{tz};
 umask 0002;
 my $dry_run = 0;
-my ( $yr, $mo, $da, $hr ) = default_slot_from_epoch(time);
+my ( undef, undef, $hr, $da, $mo, $yr ) = gmtime( time - 79_200 );
+$yr += 1900;
+$mo++;
 GetOptions(
   'year=i'  => \$yr,
   'month=i' => \$mo,
@@ -21,15 +21,15 @@ GetOptions(
   'hour=i'  => \$hr,
   'dry-run' => \$dry_run,
 );
-exit unless should_run_hour($hr);
+exit unless $hr % 3 == 0;
 my $log = $cfg->{logs_dir};
 make_path( $log, { chmod => oct('755') } ) unless -d $log;
-my $cmd = pipeline_shell_command( $cfg->{repo_root}, $log, $yr, $mo, $da, $hr );
+my $run = sprintf '%d%.2d%.2d_%.2d', $yr, $mo, $da, $hr;
+my $cmd = "$cfg->{repo_root}/pipeline_slot_nrt.csh $yr $mo $da $hr > $log/$run.log 2>&1";
 
 if ($dry_run) {
   print "$cmd\n";
   exit 0;
 }
-my $run = run_id( $yr, $mo, $da, $hr );
 system($cmd) == 0
   or die "pipeline failed for $run: exit=$?\n";

@@ -1,14 +1,13 @@
 package AIALimbfit::LimbfitCommand;
 
 use v5.42;
-use Exporter qw(import);
+use Exporter    qw(import);
 use Time::Local qw(timegm);
 
 our @EXPORT_OK = qw(
   dated_dir
   limb_filename
   limbfit_argv
-  limb_output_path
   limbfit_command
   limbfit_query
   plot_command
@@ -27,11 +26,6 @@ sub limb_filename ( $year, $month, $day, $hour, $wavelength ) {
   return sprintf '%d%.2d%.2d_%.2d_%.4d.limb', $year, $month, $day, $hour, $wavelength;
 }
 
-sub limb_output_path ( $root, $year, $month, $day, $hour, $wavelength ) {
-  return dated_dir( $root, $year, $month, $day ) . '/'
-    . limb_filename( $year, $month, $day, $hour, $wavelength );
-}
-
 sub limbfit_query (%args) {
   return sprintf '%s[%d.%.2d.%.2d_%.2d/%s][?WAVELNTH=%d?]%s',
     $args{series}, $args{year}, $args{month}, $args{day}, $args{hour}, $args{duration},
@@ -48,8 +42,7 @@ sub validate_limbfit_args (%args) {
   }
 
   my $valid = eval { timegm( 0, 0, $args{hour}, $args{day}, $args{month} - 1, $args{year} ); 1 };
-  die sprintf "Invalid slot date/time: %d-%02d-%02d %02d:00 UTC\n",
-    @args{qw(year month day hour)}
+  die sprintf "Invalid slot date/time: %d-%02d-%02d %02d:00 UTC\n", @args{qw(year month day hour)}
     unless $valid;
 
   if ( defined $args{wavelength} && defined $args{wavelengths} ) {

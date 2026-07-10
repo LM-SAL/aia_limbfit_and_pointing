@@ -42,9 +42,6 @@ return {
   # Deployment paths - gap check
   check_gaps_dir => '/surge40/nabil/LimbFit_c/gaps',
 
-  # Deployment paths - NaN gap-fill
-  update_dir => '/surge40/nabil/LimbFit_c/Update',
-
   # Pipeline constants
   cadence_h => 3,
 

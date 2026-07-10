@@ -9,7 +9,6 @@ use AIALimbfit::Slot qw(
   series_contains_time_query
   slot_bounds_from_masterpoint
   slot_record_issues
-  slot_sequence_issues
 );
 
 sub issues_string {
@@ -30,14 +29,10 @@ is_deeply(
   'parse masterpoint filename'
 );
 
-ok(
-  !defined parse_masterpoint_filename('masterpoint_20260501_0130.txt'),
-  'reject missing cadence filename'
-);
-ok(
-  !defined parse_masterpoint_filename('not_masterpoint_20260501_0130_3hcadence.txt'),
-  'reject wrong prefix filename'
-);
+ok( !defined parse_masterpoint_filename('masterpoint_20260501_0130.txt'),
+  'reject missing cadence filename' );
+ok( !defined parse_masterpoint_filename('not_masterpoint_20260501_0130_3hcadence.txt'),
+  'reject wrong prefix filename' );
 
 my $slot = slot_bounds_from_masterpoint('masterpoint_20260501_0130_3hcadence.txt');
 is( $slot->{t_start}, '2026-05-01T00:00:00Z', 'center filename maps to slot start' );
@@ -59,126 +54,59 @@ is(
 );
 
 is(
-  issues_string( slot_record_issues(
-    {
-      t_start => '2026-05-01T00:00:00Z',
-      t_stop  => '2026-05-01T03:00:00Z',
-    },
-    cadence_s => 10_800
-  ) ),
+  issues_string(
+    slot_record_issues(
+      {
+        t_start => '2026-05-01T00:00:00Z',
+        t_stop  => '2026-05-01T03:00:00Z',
+      },
+      cadence_s => 10_800
+    )
+  ),
   q{},
   'valid 3h slot has no issues'
 );
 
 is(
-  issues_string( slot_record_issues(
-    {
-      t_start => '2026-05-01T01:30:00Z',
-      t_stop  => '2026-05-01T03:00:00Z',
-    },
-    cadence_s => 10_800
-  ) ),
+  issues_string(
+    slot_record_issues(
+      {
+        t_start => '2026-05-01T01:30:00Z',
+        t_stop  => '2026-05-01T03:00:00Z',
+      },
+      cadence_s => 10_800
+    )
+  ),
   'off_grid_start,wrong_duration',
   '90-minute off-grid record is invalid'
 );
 
 is(
-  issues_string( slot_record_issues(
-    {
-      t_start => '2026-05-01T01:30:00Z',
-      t_stop  => '2026-05-01T01:30:00Z',
-    },
-    cadence_s => 10_800
-  ) ),
+  issues_string(
+    slot_record_issues(
+      {
+        t_start => '2026-05-01T01:30:00Z',
+        t_stop  => '2026-05-01T01:30:00Z',
+      },
+      cadence_s => 10_800
+    )
+  ),
   'non_positive_duration,off_grid_start,off_grid_stop',
   'same-start-stop off-grid record is invalid'
 );
 
-my @issues = slot_sequence_issues(
-  [
-    {
-      t_start => '2026-05-01T00:00:00Z',
-      t_stop  => '2026-05-01T03:00:00Z',
-    },
-    {
-      t_start => '2026-05-01T03:00:00Z',
-      t_stop  => '2026-05-01T06:00:00Z',
-    },
-  ],
-  cadence_s => 10_800
-);
-is( scalar( grep { $_->{type} eq 'gap' || $_->{type} eq 'overlap' } @issues ), 0, 'contiguous records have no gap or overlap' );
-
-@issues = slot_sequence_issues(
-  [
-    {
-      t_start => '2026-05-01T00:00:00Z',
-      t_stop  => '2026-05-01T03:00:00Z',
-    },
-    {
-      t_start => '2026-05-01T06:00:00Z',
-      t_stop  => '2026-05-01T09:00:00Z',
-    },
-  ],
-  cadence_s => 10_800
-);
-is( scalar( grep { $_->{type} eq 'gap' } @issues ), 1, 'missing slot is reported as a gap' );
-
-@issues = slot_sequence_issues(
-  [
-    {
-      t_start => '2026-05-01T00:00:00Z',
-      t_stop  => '2026-05-01T03:00:00Z',
-    },
-    {
-      t_start => '2026-05-01T01:30:00Z',
-      t_stop  => '2026-05-01T04:30:00Z',
-    },
-  ],
-  cadence_s => 10_800
-);
-is( scalar( grep { $_->{type} eq 'overlap' } @issues ), 1, 'overlapping records are reported' );
-
 is(
-  issues_string( slot_record_issues(
-    {
-      t_start => '2026-05-01T00:00:00Z',
-      t_stop  => '2026-05-01T01:00:00Z',
-    },
-    cadence_s => 10_800
-  ) ),
+  issues_string(
+    slot_record_issues(
+      {
+        t_start => '2026-05-01T00:00:00Z',
+        t_stop  => '2026-05-01T01:00:00Z',
+      },
+      cadence_s => 10_800
+    )
+  ),
   'off_grid_stop,wrong_duration',
   'under-short 1h slot detected as wrong_duration and off_grid_stop'
 );
-
-@issues = slot_sequence_issues(
-  [
-    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
-    { t_start => '2026-05-01T06:00:00Z', t_stop => '2026-05-01T09:00:00Z' },
-    { t_start => '2026-05-01T15:00:00Z', t_stop => '2026-05-01T18:00:00Z' },
-  ],
-  cadence_s => 10_800
-);
-is( scalar( grep { $_->{type} eq 'gap' } @issues ), 2, 'two missing slots produce two gap issues' );
-
-@issues = slot_sequence_issues(
-  [
-    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
-    { t_start => '2026-05-01T03:00:02Z', t_stop => '2026-05-01T06:00:02Z' },
-  ],
-  cadence_s => 10_800, epsilon => 2
-);
-is( scalar( grep { $_->{type} eq 'gap' || $_->{type} eq 'overlap' } @issues ), 0,
-  'diff exactly at epsilon not reported as gap or overlap' );
-
-@issues = slot_sequence_issues(
-  [
-    { t_start => '2026-05-01T00:00:00Z', t_stop => '2026-05-01T03:00:00Z' },
-    { t_start => '2026-05-01T03:00:03Z', t_stop => '2026-05-01T06:00:03Z' },
-  ],
-  cadence_s => 10_800, epsilon => 2
-);
-is( scalar( grep { $_->{type} eq 'gap' } @issues ), 1,
-  'diff one second past epsilon is reported as gap' );
 
 done_testing;

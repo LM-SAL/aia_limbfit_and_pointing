@@ -14,8 +14,8 @@ if [[ $# -gt 0 ]]; then
   files=("$@")
 else
   while IFS= read -r file; do
-    [[ -n "$file" ]] && files+=("$file")
-  done < <(git -c core.fsmonitor=false ls-files -- '*.pl' '*.pdl' | grep -v '^LimbFit_Copy/')
+    [[ -f "$file" ]] && files+=("$file")
+  done < <(git -c core.fsmonitor=false ls-files -- '*.pl' '*.pdl')
 fi
 
 syntax_ok=1

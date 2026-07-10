@@ -26,7 +26,6 @@ print {$cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
 print {$cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
 print {$cfg_fh} "  fits_root => ",      perl_quote("$tmp/fits"),     ",\n";
 print {$cfg_fh} "  test_fits_root => ", perl_quote("$tmp/testfits"), ",\n";
-print {$cfg_fh} "  update_dir => ",     perl_quote("$tmp/update"),   ",\n";
 print {$cfg_fh} "  logs_dir => ",       perl_quote("$tmp/logs"),     ",\n";
 print {$cfg_fh} "  repo_root => '/repo',\n";
 print {$cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
@@ -45,36 +44,34 @@ qr{/bin/limbfit dsinp='aia[.]lev1_nrt2\[2026[.]05[.]01_03/3h\]\[\?WAVELNTH=94\?\
   'ymdh dry-run prints 94A command'
 );
 like( $out, qr{20260501_03_4500[.]limb}, 'ymdh dry-run includes 4500A output path' );
+unlike( $out, qr{plot_limb[.]py}, 'all-wavelength dry-run does not plot by default' );
 
 $out =
-qx("$^X" "$repo/run_limbfit_test.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
-is( $? >> 8, 0, 'run_limbfit_test.pl dry-run exits successfully' ) or diag $out;
+qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
+is( $? >> 8, 0, 'single-wavelength dry-run exits successfully' ) or diag $out;
 like(
   $out,
 qr{/bin/limbfit dsinp='aia[.]lev1\[2026[.]05[.]01_03/3h\]\[\?WAVELNTH=171\?\]\[\?MISSVALS<99\?\]' sum=5},
   'test dry-run prints requested wavelength command'
 );
 like( $out, qr{20260501_03_0171[.]limb}, 'test dry-run includes padded output filename' );
-unlike( $out, qr{plot_limb[.]py}, 'test dry-run suppresses plot command with -no-plots' );
+unlike( $out, qr{plot_limb[.]py},
+  'single-wavelength dry-run suppresses plot command with -no-plots' );
 
-$out = qx("$^X" "$repo/run_limbfit_test.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -wavel=171 2>&1);
-isnt( $? >> 8, 0, 'run_limbfit_test.pl rejects a missing hour' );
+$out =
+  qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
+like(
+  $out,
+  qr{\Q$tmp/testfits/2026/05/01/20260501_03_0171.limb\E},
+  'single-wavelength run defaults to test output root'
+);
+like( $out, qr{plot_limb[.]py}, 'single-wavelength run plots by default' );
+
+$out =
+qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -wavel=171 2>&1);
+isnt( $? >> 8, 0, 'single-wavelength run rejects a missing hour' );
 like( $out, qr{Missing required option: --hour}, 'missing-hour error is explicit' );
 unlike( $out, qr{uninitialized value}, 'missing-hour error avoids Perl warnings' );
-
-$out = qx(printf '2026-05-01T03:00:00Z 171 NaN NaN\n' | "$^X" "$repo/update_nans.pl" -dry-run 2>&1);
-is( $? >> 8, 0, 'update_nans.pl dry-run exits successfully' ) or diag $out;
-unlike( $out, qr{\bsed\b}, 'update_nans dry-run does not depend on an external sed script' );
-like(
-  $out,
-  qr{lf2mpr_nrt[.]pdl -inpdir .*-outdir .* -y 2026 -mo 5 -da 1 -h 3 -require-all},
-  'update_nans dry-run prints strict reducer command'
-);
-like(
-  $out,
-  qr{update3h_mpt[.]pl -src .*-ser aia[.]master_pointing3h},
-  'update_nans dry-run prints update command'
-);
 
 $out = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 2>&1);
 is( $? >> 8, 0, 'cron_submit_slot.pl dry-run exits successfully' ) or diag $out;
@@ -178,7 +175,7 @@ print {$fail_cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
 print {$fail_cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
 print {$fail_cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
 print {$fail_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$fail_cfg_fh} "  fits_root => ", perl_quote("$tmp/failfits"), ",\n";
+print {$fail_cfg_fh} "  fits_root => ",      perl_quote("$tmp/failfits"), ",\n";
 print {$fail_cfg_fh} "  test_fits_root => ", perl_quote("$tmp/failtest"), ",\n";
 print {$fail_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
 print {$fail_cfg_fh} "  limbfit_exe => ", perl_quote($fail_limbfit), ",\n";
@@ -195,9 +192,12 @@ ok(
   'ymdh removes failed all-run output file'
 );
 
-$out = qx("$^X" "$repo/run_limbfit_test.pl" -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=94 2>&1);
-isnt( $? >> 8, 0, 'run_limbfit_test.pl fails after a limbfit failure' );
-ok( !-e "$tmp/failtest/2026/05/01/20260501_03_0094.limb",
-  'single-wavelength runner removes failed output file' );
+$out =
+  qx("$^X" "$repo/run_limbfit_ymdh.pl" -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=94 2>&1);
+isnt( $? >> 8, 0, 'single-wavelength run fails after a limbfit failure' );
+ok(
+  !-e "$tmp/failtest/2026/05/01/20260501_03_0094.limb",
+  'single-wavelength runner removes failed output file'
+);
 
 done_testing;

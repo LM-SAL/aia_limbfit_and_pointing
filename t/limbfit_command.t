@@ -8,7 +8,6 @@ use AIALimbfit::LimbfitCommand qw(
   dated_dir
   limb_filename
   limbfit_argv
-  limb_output_path
   limbfit_command
   limbfit_query
   plot_command
@@ -20,11 +19,6 @@ use AIALimbfit::LimbfitCommand qw(
 
 is( dated_dir( '/tmp/fits', 2026, 5, 1 ), '/tmp/fits/2026/05/01',  'dated output directory' );
 is( limb_filename( 2026, 5, 1, 3, 94 ),   '20260501_03_0094.limb', 'limb filename is padded' );
-is(
-  limb_output_path( '/tmp/fits', 2026, 5, 1, 3, 4500 ),
-  '/tmp/fits/2026/05/01/20260501_03_4500.limb',
-  'limb output path'
-);
 
 is( wavelength_sum(94),   5, 'sum 5 below 1500A' );
 is( wavelength_sum(1600), 3, 'sum 3 below 4000A' );

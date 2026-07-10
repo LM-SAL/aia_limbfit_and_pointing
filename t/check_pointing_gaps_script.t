@@ -144,25 +144,6 @@ print {$reduce_fh} "exit 0;\n";
 close $reduce_fh or die "Cannot close $fake_reduce: $!";
 chmod 0755, $fake_reduce or die "Cannot chmod $fake_reduce: $!";
 
-# Fake single-wavelength limbfit: creates the limb file unconditionally.
-my $fake_test = "$tmp/fake_run_test.pl";
-open my $test_fh, '>', $fake_test or die "Cannot write $fake_test: $!";
-print {$test_fh} "#!/usr/bin/env perl\n";
-print {$test_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
-print {$test_fh} "my %args;\n";
-print {$test_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
-print {$test_fh}
-"my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
-print {$test_fh} "make_path(\$dir);\n";
-print {$test_fh}
-"my \$path = sprintf '%s/%d%02d%02d_%02d_%04d.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour}, \$args{wavel};\n";
-print {$test_fh} "open my \$fh, '>', \$path or die \"Cannot write \$path: \$!\";\n";
-print {$test_fh} "print {\$fh} \"ok\\n\";\n";
-print {$test_fh} "close \$fh or die \"Cannot close \$path: \$!\";\n";
-print {$test_fh} "exit 0;\n";
-close $test_fh or die "Cannot close $fake_test: $!";
-chmod 0755, $fake_test or die "Cannot chmod $fake_test: $!";
-
 my $fake_plot = "$tmp/fake_plot.sh";
 open my $plot_fh, '>', $fake_plot or die "Cannot write $fake_plot: $!";
 print {$plot_fh} "#!/bin/sh\nexit 0\n";
@@ -180,12 +161,11 @@ print {$gap_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
 print {$gap_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
 print {$gap_cfg_fh} "  cadence_h => 3,\n";
 print {$gap_cfg_fh} "  nan_sentinel => 1234567,\n";
-print {$gap_cfg_fh} "  fits_root => ",       perl_quote("$tmp/production"), ",\n";
-print {$gap_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/gap_check"), ",\n";
-print {$gap_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),        ",\n";
-print {$gap_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),       ",\n";
-print {$gap_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),     ",\n";
-print {$gap_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),       ",\n";
+print {$gap_cfg_fh} "  fits_root => ",        perl_quote("$tmp/production"), ",\n";
+print {$gap_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/gap_check"),  ",\n";
+print {$gap_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),         ",\n";
+print {$gap_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),      ",\n";
+print {$gap_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),        ",\n";
 print {$gap_cfg_fh} "};\n";
 close $gap_cfg_fh or die "Cannot close $gap_config: $!";
 
@@ -194,8 +174,18 @@ my $run_log = "$tmp/gap_run.log";
 local $ENV{AIA_LIMBFIT_CONFIG} = $gap_config;
 local $ENV{SHOW_INFO_SCENARIO} = 'single_gap';
 local $ENV{FAKE_RUN_LOG}       = $run_log;
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" -repair 2>&1);
+isnt( $? >> 8, 0, 'repair rejects an unscoped historical run' );
+like(
+  $output,
+  qr{repair requires explicit --year, --month, and --day},
+  'repair scope error is explicit'
+);
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" -dry-run -year=2026 -month=5 -day=1 2>&1);
+isnt( $? >> 8, 0, 'dry-run without repair is rejected' );
+like( $output, qr{dry-run requires --repair}, 'dry-run usage error is explicit' );
 $output =
-qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
 is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for single-slot gap' )
   or diag $output;
 like(
@@ -229,7 +219,7 @@ is_deeply(
 # --- non-multiple gap: report only, no backfill ---
 local $ENV{SHOW_INFO_SCENARIO} = 'large_gap';
 $output =
-qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
 is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for non-multiple gap' ) or diag $output;
 like(
   $output,
@@ -254,7 +244,6 @@ do {
   print {$multi_cfg_fh} "  nan_sentinel => 1234567,\n";
   print {$multi_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/multi_check"), ",\n";
   print {$multi_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),          ",\n";
-  print {$multi_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),         ",\n";
   print {$multi_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),       ",\n";
   print {$multi_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),         ",\n";
   print {$multi_cfg_fh} "};\n";
@@ -263,7 +252,7 @@ do {
   local $ENV{AIA_LIMBFIT_CONFIG} = $multi_config;
   local $ENV{SHOW_INFO_SCENARIO} = 'multi_gap';
   my $multi_out =
-qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
   is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for multi-slot gap' )
     or diag $multi_out;
   like(
@@ -283,15 +272,22 @@ is( $? >> 8, 0, 'check_pointing_gaps.pl exits successfully for overlapping-span 
   or diag $output;
 like( $output, qr{No gaps detected}, '6h-span records staggered 3h apart produce no gap' );
 
-# --- -report-only suppresses backfill ---
+# --- reporting is read-only by default ---
 local $ENV{SHOW_INFO_SCENARIO} = 'single_gap';
 $output =
-qx("$^X" "$repo/check_pointing_gaps.pl" -report-only -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
-is( $? >> 8, 0, 'check_pointing_gaps.pl -report-only exits successfully' ) or diag $output;
-like( $output, qr{TEMPORAL GAP}, '-report-only still prints gap' );
-unlike( $output, qr{run_limbfit_ymdh[.]pl}, '-report-only suppresses backfill commands' );
+qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+is( $? >> 8, 0, 'default report exits successfully' ) or diag $output;
+like( $output, qr{TEMPORAL GAP}, 'default report still prints gap' );
+like(
+  $output,
+  qr{Report only; no limb fits or repairs were run},
+  'default report states it is read-only'
+);
+unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'default report suppresses repair commands' );
 
 # --- wavelength gap ---
+my $gap_limb = "$tmp/gap_check/limb/2026/05/01/20260501_03_0094.limb";
+unlink $gap_limb;
 local $ENV{SHOW_INFO_SCENARIO} = 'wl_gap';
 $output =
 qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
@@ -313,18 +309,26 @@ like(
   'patch file contains wavelength gap entry'
 );
 
-ok(
-  -s "$tmp/gap_check/limb/2026/05/01/20260501_03_0094.limb",
-  'run_limbfit_test creates limb file for missing wavelength'
-);
+ok( !-e $gap_limb, 'default wavelength report does not generate a limb file' );
+
+open my $empty_limb_fh, '>', $gap_limb or die "Cannot write $gap_limb: $!";
+close $empty_limb_fh or die "Cannot close $gap_limb: $!";
+$output =
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -dry-run -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+is( $? >> 8, 0, 'repair preview exits successfully' ) or diag $output;
+ok( -e $gap_limb && !-s $gap_limb, 'repair preview does not remove an empty limb file' );
+like( $output, qr{Would remove empty limb file}, 'repair preview reports the planned removal' );
 
 $output =
 qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
 is( $? >> 8, 0, 'explicit wavelength repair exits successfully' ) or diag $output;
+ok( -s $gap_limb, 'explicit repair generates the missing wavelength' );
 ok( -s "$tmp/production/2026/05/01/20260501_03_0094.limb",
   'explicit repair installs regenerated wavelength in production limb tree' );
-ok( -s "$tmp/gap_check/stage/masterpoint_20260501_0300_3hcadence.txt",
-  'explicit repair reduces the complete production wavelength set' );
+ok(
+  -s "$tmp/gap_check/stage/masterpoint_20260501_0300_3hcadence.txt",
+  'explicit repair reduces the complete production wavelength set'
+);
 
 # --- backfill failure continues to next slot ---
 my $continue_config = "$tmp/continue_config.pl";
@@ -340,7 +344,6 @@ print {$continue_cfg_fh} "  cadence_h => 3,\n";
 print {$continue_cfg_fh} "  nan_sentinel => 1234567,\n";
 print {$continue_cfg_fh} "  check_gaps_dir => ",   perl_quote("$tmp/continue_check"), ",\n";
 print {$continue_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),             ",\n";
-print {$continue_cfg_fh} "  run_limbfit_test => ", perl_quote($fake_test),            ",\n";
 print {$continue_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce),          ",\n";
 print {$continue_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),            ",\n";
 print {$continue_cfg_fh} "};\n";
@@ -350,7 +353,7 @@ local $ENV{AIA_LIMBFIT_CONFIG} = $continue_config;
 local $ENV{SHOW_INFO_SCENARIO} = 'two_gaps';
 local $ENV{FAKE_RUN_FAIL_HOUR} = 3;
 $output =
-qx("$^X" "$repo/check_pointing_gaps.pl" -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
 is( $? >> 8, 0, 'check_pointing_gaps.pl continues after one failed backfill slot' )
   or diag $output;
 like(

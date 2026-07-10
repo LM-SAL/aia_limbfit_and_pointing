@@ -7,7 +7,7 @@ if [[ $# -gt 0 ]]; then
   files=("$@")
 else
   while IFS= read -r file; do
-    [[ -n "$file" ]] && files+=("$file")
+    [[ -f "$file" ]] && files+=("$file")
   done < <(git ls-files -- '*.pl' '*.pdl')
 fi
 
