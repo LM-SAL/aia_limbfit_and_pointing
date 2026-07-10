@@ -212,6 +212,55 @@ For an operator-approved value after a reducer failure, supply a validated overr
 Overrides are accepted only for failed/non-finite wavelengths; invalid, duplicate,
 unconfigured, and unused entries are rejected.
 
+`suggest_nan_overrides.pl` turns missing masterpoint values into reviewable override
+files using neighboring masterpoints and, when available, radius-consistent limb
+samples:
+
+```console
+./suggest_nan_overrides.pl \
+  -srcdir=/surge40/nabil/LimbFit_c/mpt3h \
+  -fits-root=/surge40/nabil/LimbFit_c/fits_nrt \
+  -outdir=/tmp/limbfit-overrides
+```
+
+`HIGH` means limb and temporal evidence agree. A conflict still emits a
+`REVIEW_REQUIRED` best guess: it prefers the direct limb candidate; if the target
+limb is unavailable, it uses the bounded temporal candidate. The output file is
+reducer-compatible but is never applied automatically. `UNRESOLVED` is reserved
+for cases without two sufficiently close trusted anchors, where the tool has no
+defensible numeric estimate.
+
+For example, this conflict:
+
+```text
+CONFLICT masterpoint_20260707_0430_3hcadence.txt 335 ...
+BEST_GUESS masterpoint_20260707_0430_3hcadence.txt 335 2040.554000 2046.711556 ... confidence=REVIEW_REQUIRED
+```
+
+creates `masterpoint_20260707_0430_3hcadence.overrides.txt`. Review its comments
+and value, then regenerate the 03:00 slot in a temporary directory:
+
+```console
+override=./masterpoint_20260707_0430_3hcadence.overrides.txt
+work=$(mktemp -d)
+
+cat "$override"
+./lf2mpr_nrt.pdl \
+  -inpdir=/surge40/nabil/LimbFit_c/fits_nrt \
+  -outdir="$work" \
+  -year=2026 -month=7 -day=7 -hour=3 \
+  -require-all -override-file="$override"
+
+rg 'A_335_[XY]0' "$work/masterpoint_20260707_0430_3hcadence.txt"
+./update3h_mpt.pl -srcdir="$work" -dry-run
+```
+
+Only after approving the generated values, publish them:
+
+```console
+./update3h_mpt.pl -srcdir="$work"
+```
+
 ### Split clusters
 
 When the reducer reports two separated temporal clusters, inspect the diagnostic
@@ -255,6 +304,7 @@ JSOC environment.
 | `pipeline_slot_nrt.csh` | Three-stage production wrapper |
 | `run_limbfit_ymdh.pl` | All- or single-wavelength limb fitting |
 | `lf2mpr_nrt.pdl` | Limb reduction and masterpoint generation |
+| `suggest_nan_overrides.pl` | Reviewable values for failed masterpoints |
 | `update3h_mpt.pl` | Reviewed masterpoint ingestion into DRMS |
 | `check_pointing_gaps.pl` | Read-only reports and explicit repair staging |
 | `lf_inv.pl` | Filesystem limb inventory |
