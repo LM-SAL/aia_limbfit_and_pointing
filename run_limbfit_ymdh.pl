@@ -124,6 +124,7 @@ for my $w (@wavelengths) {
     if $plots;
 }
 
+rmdir $outdir;
 exit 0 if $dry_run;
 my $failed = @failed ? join( q{,}, map { $_ . q{A} } @failed ) : 'none';
 warn "LIMBFIT SUMMARY slot=$slot succeeded=$succeeded attempted=$attempted failed=$failed\n";

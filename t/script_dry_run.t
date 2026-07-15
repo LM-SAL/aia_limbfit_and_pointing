@@ -172,6 +172,7 @@ cmp_ok( $? >> 8, '!=', 0, 'run_limbfit_ymdh.pl fails when every wavelength write
   or diag $out;
 like( $out, qr{empty output file}, 'ymdh empty output failure is reported' );
 ok( !-e "$tmp/emptyfits/2026/05/01/20260501_03_0094.limb", 'ymdh removes empty output file' );
+ok( !-d "$tmp/emptyfits/2026/05/01", 'ymdh removes the empty dated output directory' );
 
 my $fail_cfg = "$tmp/fail_config.pl";
 open my $fail_cfg_fh, '>', $fail_cfg or die "Cannot write $fail_cfg: $!";
