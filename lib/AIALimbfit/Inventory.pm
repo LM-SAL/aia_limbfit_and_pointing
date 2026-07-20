@@ -1,6 +1,6 @@
 package AIALimbfit::Inventory;
 
-use v5.42;
+use v5.38;
 use Exporter    qw(import);
 use Time::Local qw(timegm);
 

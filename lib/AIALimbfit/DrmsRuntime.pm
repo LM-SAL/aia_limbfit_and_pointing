@@ -1,6 +1,6 @@
 package AIALimbfit::DrmsRuntime;
 
-use v5.42;
+use v5.38;
 use Exporter qw(import);
 
 our @EXPORT_OK = qw(validate_drms_runtime show_info_lines);

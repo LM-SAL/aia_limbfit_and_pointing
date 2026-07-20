@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 use FindBin    qw($Bin);
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
@@ -23,7 +23,7 @@ make_path(
 my $show_info = "$drms/bin/linux_avx2/show_info";
 open my $show_fh, '>', $show_info or die "Cannot write $show_info: $!";
 print {$show_fh} "#!/usr/bin/env perl\n";
-print {$show_fh} "use v5.42;\n";
+print {$show_fh} "use v5.38;\n";
 print {$show_fh} "if (\$ENV{SHOW_INFO_LOG}) {\n";
 print {$show_fh}
   "  open my \$log_fh, '>>', \$ENV{SHOW_INFO_LOG} or die \"Cannot write SHOW_INFO_LOG: \$!\";\n";
@@ -64,7 +64,7 @@ chmod 0755, $show_info or die "Cannot chmod $show_info: $!";
 
 my $config = "$tmp/config.pl";
 open my $cfg_fh, '>', $config or die "Cannot write $config: $!";
-print {$cfg_fh} "use v5.42;\nreturn {\n";
+print {$cfg_fh} "use v5.38;\nreturn {\n";
 print {$cfg_fh} "  wl => [94],\n";
 print {$cfg_fh} "  tz => 'UTC',\n";
 print {$cfg_fh} "  sumserver => 'test',\n";
@@ -110,7 +110,7 @@ ok( -e "$tmp/check/patch.txt", 'patch file is created in check directory' );
 my $fake_run = "$tmp/fake_run_limbfit.pl";
 open my $run_fh, '>', $fake_run or die "Cannot write $fake_run: $!";
 print {$run_fh} "#!/usr/bin/env perl\n";
-print {$run_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
+print {$run_fh} "use v5.38;\nuse File::Path qw(make_path);\n";
 print {$run_fh} "my %args;\n";
 print {$run_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
 print {$run_fh}
@@ -132,7 +132,7 @@ chmod 0755, $fake_run or die "Cannot chmod $fake_run: $!";
 my $fake_reduce = "$tmp/fake_reduce.pl";
 open my $reduce_fh, '>', $fake_reduce or die "Cannot write $fake_reduce: $!";
 print {$reduce_fh} "#!/usr/bin/env perl\n";
-print {$reduce_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
+print {$reduce_fh} "use v5.38;\nuse File::Path qw(make_path);\n";
 print {$reduce_fh} "my %args;\n";
 print {$reduce_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
 print {$reduce_fh}
@@ -158,7 +158,7 @@ chmod 0755, $fake_plot or die "Cannot chmod $fake_plot: $!";
 
 my $gap_config = "$tmp/gap_config.pl";
 open my $gap_cfg_fh, '>', $gap_config or die "Cannot write $gap_config: $!";
-print {$gap_cfg_fh} "use v5.42;\nreturn {\n";
+print {$gap_cfg_fh} "use v5.38;\nreturn {\n";
 print {$gap_cfg_fh} "  wl => [94],\n";
 print {$gap_cfg_fh} "  tz => 'UTC',\n";
 print {$gap_cfg_fh} "  sumserver => 'test',\n";
@@ -239,7 +239,7 @@ unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'non-multiple gap does not trigger b
 my $multi_config = "$tmp/multi_config.pl";
 do {
   open my $multi_cfg_fh, '>', $multi_config or die "Cannot write $multi_config: $!";
-  print {$multi_cfg_fh} "use v5.42;\nreturn {\n";
+  print {$multi_cfg_fh} "use v5.38;\nreturn {\n";
   print {$multi_cfg_fh} "  wl => [94],\n";
   print {$multi_cfg_fh} "  tz => 'UTC',\n";
   print {$multi_cfg_fh} "  sumserver => 'test',\n";
@@ -356,7 +356,7 @@ ok(
 # --- backfill failure continues to next slot ---
 my $continue_config = "$tmp/continue_config.pl";
 open my $continue_cfg_fh, '>', $continue_config or die "Cannot write $continue_config: $!";
-print {$continue_cfg_fh} "use v5.42;\nreturn {\n";
+print {$continue_cfg_fh} "use v5.38;\nreturn {\n";
 print {$continue_cfg_fh} "  wl => [94],\n";
 print {$continue_cfg_fh} "  tz => 'UTC',\n";
 print {$continue_cfg_fh} "  sumserver => 'test',\n";

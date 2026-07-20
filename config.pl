@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 
 # Central configuration for the AIA limbfit / pointing NRT pipeline.
 # Load with: my $cfg = do "$FindBin::RealBin/config.pl" or die "Cannot load config.pl: " . ($@ || $!);

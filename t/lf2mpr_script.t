@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 use FindBin qw($Bin);
 use File::Copy qw(copy);
 use File::Path qw(make_path);
@@ -28,7 +28,7 @@ copy( "$repo/data/20260707_03_0335.limb", "$inp/2026/05/01/20260501_00_0335.limb
 
 my $config = "$tmp/config.pl";
 open my $cfg_fh, '>', $config or die "Cannot write $config: $!";
-print {$cfg_fh} "use v5.42;\nreturn {\n";
+print {$cfg_fh} "use v5.38;\nreturn {\n";
 print {$cfg_fh} "  wl => [335, 4500],\n";
 print {$cfg_fh} "  cadence_h => 3,\n";
 print {$cfg_fh} "  pointing_dir => ", perl_quote($stg), ",\n";
@@ -93,7 +93,7 @@ close $stale_stage_fh or die "Cannot close $stale_stage: $!";
 
 my $empty_config = "$tmp/empty_config.pl";
 open my $empty_cfg_fh, '>', $empty_config or die "Cannot write $empty_config: $!";
-print {$empty_cfg_fh} "use v5.42;\nreturn {\n";
+print {$empty_cfg_fh} "use v5.38;\nreturn {\n";
 print {$empty_cfg_fh} "  wl => [94],\n";
 print {$empty_cfg_fh} "  cadence_h => 3,\n";
 print {$empty_cfg_fh} "  pointing_dir => ", perl_quote($empty_stg), ",\n";
@@ -120,7 +120,7 @@ close $copy_limb_fh or die "Cannot close $copy_limb: $!";
 
 my $copy_config = "$tmp/copy_config.pl";
 open my $copy_cfg_fh, '>', $copy_config or die "Cannot write $copy_config: $!";
-print {$copy_cfg_fh} "use v5.42;\nreturn {\n";
+print {$copy_cfg_fh} "use v5.38;\nreturn {\n";
 print {$copy_cfg_fh} "  wl => [4500],\n";
 print {$copy_cfg_fh} "  cadence_h => 3,\n";
 print {$copy_cfg_fh} "  pointing_dir => ", perl_quote($copy_stg), ",\n";

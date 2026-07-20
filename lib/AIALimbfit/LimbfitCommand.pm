@@ -1,6 +1,8 @@
 package AIALimbfit::LimbfitCommand;
 
-use v5.42;
+use v5.38;
+use feature 'try';
+no warnings 'experimental::try';
 use Exporter    qw(import);
 use Time::Local qw(timegm);
 

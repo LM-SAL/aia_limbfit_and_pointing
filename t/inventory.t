@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 use FindBin     qw($Bin);
 use File::Path  qw(make_path);
 use File::Temp  qw(tempdir);

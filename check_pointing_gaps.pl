@@ -1,5 +1,7 @@
 #!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
-use v5.42;
+use v5.38;
+use feature 'try';
+no warnings 'experimental::try';
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);

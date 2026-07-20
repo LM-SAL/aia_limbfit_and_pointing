@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 use FindBin    qw($Bin);
 use File::Temp qw(tempdir);
 use Test::More;
@@ -14,7 +14,7 @@ my $tmp  = tempdir( CLEANUP => 1 );
 my $cfg  = "$tmp/config.pl";
 
 open my $cfg_fh, '>', $cfg or die "Cannot write $cfg: $!";
-print {$cfg_fh} "use v5.42;\nreturn {\n";
+print {$cfg_fh} "use v5.38;\nreturn {\n";
 print {$cfg_fh} "  wl => [94, 171, 4500],\n";
 print {$cfg_fh} "  sumserver => 'test',\n";
 print {$cfg_fh} "  sge_root => '/SGE',\n";
@@ -88,14 +88,14 @@ is( $out,    q{}, 'cron dry-run prints nothing for off-cadence hour' );
 my $fail_limbfit = "$tmp/fail_limbfit.pl";
 open my $fail_fh, '>', $fail_limbfit or die "Cannot write $fail_limbfit: $!";
 print {$fail_fh} "#!/usr/bin/env perl\n";
-print {$fail_fh} "use v5.42;\nexit 3;\n";
+print {$fail_fh} "use v5.38;\nexit 3;\n";
 close $fail_fh or die "Cannot close $fail_limbfit: $!";
 chmod 0755, $fail_limbfit or die "Cannot chmod $fail_limbfit: $!";
 
 my $mixed_limbfit = "$tmp/mixed_limbfit.pl";
 open my $mixed_fh, '>', $mixed_limbfit or die "Cannot write $mixed_limbfit: $!";
 print {$mixed_fh} "#!/usr/bin/env perl\n";
-print {$mixed_fh} "use v5.42;\n";
+print {$mixed_fh} "use v5.38;\n";
 print {$mixed_fh} "my \$args = join q{ }, \@ARGV;\n";
 print {$mixed_fh} "exit 3 if \$args =~ /WAVELNTH=94/;\n";
 print {$mixed_fh} "print qq{ok\\n};\n";
@@ -106,13 +106,13 @@ chmod 0755, $mixed_limbfit or die "Cannot chmod $mixed_limbfit: $!";
 my $empty_limbfit = "$tmp/empty_limbfit.pl";
 open my $empty_fh, '>', $empty_limbfit or die "Cannot write $empty_limbfit: $!";
 print {$empty_fh} "#!/usr/bin/env perl\n";
-print {$empty_fh} "use v5.42;\nexit 0;\n";
+print {$empty_fh} "use v5.38;\nexit 0;\n";
 close $empty_fh or die "Cannot close $empty_limbfit: $!";
 chmod 0755, $empty_limbfit or die "Cannot chmod $empty_limbfit: $!";
 
 my $quality_show_info = "$tmp/quality_show_info.pl";
 open my $quality_fh, '>', $quality_show_info or die "Cannot write $quality_show_info: $!";
-print {$quality_fh} "#!/usr/bin/env perl\nuse v5.42;\n";
+print {$quality_fh} "#!/usr/bin/env perl\nuse v5.38;\n";
 print {$quality_fh} "my \$query = \$ARGV[-1] // q{};\n";
 print {$quality_fh}
 "my \$skip = \$ENV{FAKE_QUALITY_SKIP_WAVELENGTH};\nprint defined \$skip && \$query =~ /WAVELNTH=\$skip/ && \$query =~ /QUALITY/ ? qq{0\\n} : qq{5\\n};\n";
@@ -121,7 +121,7 @@ chmod 0755, $quality_show_info or die "Cannot chmod $quality_show_info: $!";
 
 my $mixed_cfg = "$tmp/mixed_config.pl";
 open my $mixed_cfg_fh, '>', $mixed_cfg or die "Cannot write $mixed_cfg: $!";
-print {$mixed_cfg_fh} "use v5.42;\nreturn {\n";
+print {$mixed_cfg_fh} "use v5.38;\nreturn {\n";
 print {$mixed_cfg_fh} "  wl => [94, 171],\n";
 print {$mixed_cfg_fh} "  sumserver => 'test',\n";
 print {$mixed_cfg_fh} "  sge_root => '/SGE',\n";
@@ -177,7 +177,7 @@ like(
 
 my $empty_cfg = "$tmp/empty_config.pl";
 open my $empty_cfg_fh, '>', $empty_cfg or die "Cannot write $empty_cfg: $!";
-print {$empty_cfg_fh} "use v5.42;\nreturn {\n";
+print {$empty_cfg_fh} "use v5.38;\nreturn {\n";
 print {$empty_cfg_fh} "  wl => [94],\n";
 print {$empty_cfg_fh} "  sumserver => 'test',\n";
 print {$empty_cfg_fh} "  sge_root => '/SGE',\n";
@@ -202,7 +202,7 @@ ok( !-d "$tmp/emptyfits/2026/05/01", 'ymdh removes the empty dated output direct
 
 my $fail_cfg = "$tmp/fail_config.pl";
 open my $fail_cfg_fh, '>', $fail_cfg or die "Cannot write $fail_cfg: $!";
-print {$fail_cfg_fh} "use v5.42;\nreturn {\n";
+print {$fail_cfg_fh} "use v5.38;\nreturn {\n";
 print {$fail_cfg_fh} "  wl => [94],\n";
 print {$fail_cfg_fh} "  sumserver => 'test',\n";
 print {$fail_cfg_fh} "  sge_root => '/SGE',\n";

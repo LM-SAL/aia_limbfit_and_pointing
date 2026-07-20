@@ -1,4 +1,4 @@
-use v5.42;
+use v5.38;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use File::Temp qw(tempdir);
@@ -76,7 +76,7 @@ my $tmp          = tempdir( CLEANUP => 1 );
 my $fake_limbfit = "$tmp/fake_limbfit.pl";
 open my $fake_fh, '>', $fake_limbfit or die "Cannot write $fake_limbfit: $!";
 print {$fake_fh} "#!/usr/bin/env perl\n";
-print {$fake_fh} "use v5.42;\n";
+print {$fake_fh} "use v5.38;\n";
 print {$fake_fh} "print qq{1 2\\n};\n";
 print {$fake_fh} "exit 0;\n";
 close $fake_fh or die "Cannot close $fake_limbfit: $!";

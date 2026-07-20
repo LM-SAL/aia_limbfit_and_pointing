@@ -1,6 +1,6 @@
 package AIALimbfit::Reducer;
 
-use v5.42;
+use v5.38;
 use Exporter qw(import);
 use PDL;
 use PDL::Stats::Basic;
