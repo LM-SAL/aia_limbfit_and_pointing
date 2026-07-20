@@ -51,6 +51,10 @@ print {$show_fh} "  print qq{2026-05-01T06:00:00Z 2026-05-01T12:00:00Z 960.7 102
 print {$show_fh} "} elsif (\$scenario eq 'wl_gap') {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z NaN NaN\\n};\n";
+print {$show_fh} "} elsif (\$scenario eq 'two_wl_gaps') {\n";
+print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
+print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z NaN NaN\\n};\n";
+print {$show_fh} "  print qq{2026-05-01T06:00:00Z 2026-05-01T09:00:00Z NaN NaN\\n};\n";
 print {$show_fh} "} else {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z 960.6 1024.4\\n};\n";
@@ -131,6 +135,8 @@ print {$reduce_fh} "#!/usr/bin/env perl\n";
 print {$reduce_fh} "use v5.42;\nuse File::Path qw(make_path);\n";
 print {$reduce_fh} "my %args;\n";
 print {$reduce_fh} "for my \$arg (\@ARGV) { \$args{\$1} = \$2 if \$arg =~ /^-(\\w+)=(.*)\$/; }\n";
+print {$reduce_fh}
+"die \"Missing or empty limb files: 131A\\n\" if defined \$ENV{FAKE_REDUCE_FAIL_HOUR} && \$args{hour} == \$ENV{FAKE_REDUCE_FAIL_HOUR};\n";
 print {$reduce_fh}
 "my \$path = sprintf '%s/%d/%02d/%02d/%d%02d%02d_%02d_0094.limb', \$args{inpdir}, \$args{year}, \$args{month}, \$args{day}, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
 print {$reduce_fh} "die \"missing limb\\n\" unless -s \$path;\n";
@@ -328,6 +334,23 @@ ok( -s "$tmp/production/2026/05/01/20260501_03_0094.limb",
 ok(
   -s "$tmp/gap_check/stage/masterpoint_20260501_0300_3hcadence.txt",
   'explicit repair reduces the complete production wavelength set'
+);
+
+# A failed historical reduction must not stop the rest of a wavelength-gap batch.
+local $ENV{SHOW_INFO_SCENARIO}     = 'two_wl_gaps';
+local $ENV{FAKE_REDUCE_FAIL_HOUR} = 3;
+$output =
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+is( $? >> 8, 0, 'wavelength repair continues after one reduction failure' ) or diag $output;
+like(
+  $output,
+  qr{Wavelength repair failed for 2026-5-1 3:00 UTC; continuing},
+  'failed wavelength-repair slot is reported without stopping the range'
+);
+like( $output, qr{Backfill failures: 1}, 'wavelength-repair failure is summarized' );
+ok(
+  -s "$tmp/gap_check/stage/masterpoint_20260501_0600_3hcadence.txt",
+  'later wavelength-gap slot is reduced after an earlier slot fails'
 );
 
 # --- backfill failure continues to next slot ---
