@@ -2,6 +2,7 @@
 use v5.42;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
+use AIALimbfit::DrmsRuntime qw(show_info_lines);
 use AIALimbfit::LimbfitCommand
   qw(dated_dir limb_filename limbfit_command limbfit_query plot_command run_limbfit_to_file validate_limbfit_args wavelength_sum);
 use Getopt::Long;
@@ -17,7 +18,9 @@ local $ENV{DRMS_SCRS_INSTALL_DIR}   = $cfg->{drms_scrs_install_dir};
 local $ENV{DRMS_SRC_INSTALL_DIR}    = $cfg->{drms_src_install_dir};
 
 my ( $yr, $mo, $hr, $da, $dur );
-my $filt = $cfg->{drms_filter};
+my $filt         = $cfg->{drms_filter};
+my $quality_filt = $cfg->{drms_quality_filter} // q{};
+my $show_info    = $cfg->{show_info};
 my ( $outroot, $series, $wavelength );
 my $dry_run = 0;
 my $plots;
@@ -53,19 +56,27 @@ sub _status_text ($status) {
   return 'exit ' .   ( $status >> 8 );
 }
 
+sub _record_count ($query) {
+  my @lines = show_info_lines( $show_info, '-cq', $query );
+  chomp @lines;
+  my ($count) = grep { /^\d+$/ } @lines;
+  die "Unexpected show_info count for $query\n" unless defined $count;
+  return 0 + $count;
+}
+
 my $outdir = dated_dir( $outroot, $yr, $mo, $da );
 make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
 
 my $attempted = 0;
 my $succeeded = 0;
 my @failed;
+my @skipped;
 my @wavelengths = defined $wavelength ? ($wavelength) : @{ $cfg->{wl} };
 my $slot        = sprintf '%04d-%02d-%02dT%02d:00Z', $yr, $mo, $da, $hr;
 
 for my $w (@wavelengths) {
-  $attempted++;
-  my $outnam = limb_filename( $yr, $mo, $da, $hr, $w );
-  my $qs     = limbfit_query(
+  my $outnam     = limb_filename( $yr, $mo, $da, $hr, $w );
+  my %query_args = (
     series     => $series,
     year       => $yr,
     month      => $mo,
@@ -73,11 +84,12 @@ for my $w (@wavelengths) {
     hour       => $hr,
     duration   => $dur,
     wavelength => $w,
-    filter     => $filt,
   );
-  my $sum     = wavelength_sum($w);
-  my $outpath = "$outdir/$outnam";
-  my $cmd     = limbfit_command(
+  my $source_qs = limbfit_query( %query_args, filter => $filt );
+  my $qs        = limbfit_query( %query_args, filter => $filt . $quality_filt );
+  my $sum       = wavelength_sum($w);
+  my $outpath   = "$outdir/$outnam";
+  my $cmd       = limbfit_command(
     limbfit_exe => $cfg->{limbfit_exe},
     query       => $qs,
     sum         => $sum,
@@ -93,6 +105,18 @@ for my $w (@wavelengths) {
     next;
   }
 
+  if ( length $quality_filt && _record_count($qs) == 0 ) {
+    my $source_count = _record_count($source_qs);
+    my $reason =
+      $source_count
+      ? "all $source_count source records rejected by data-quality filter"
+      : 'no source records';
+    warn "LIMBFIT SKIP slot=$slot wavelength=${w}A reason=$reason\n";
+    push @skipped, $w;
+    next;
+  }
+
+  $attempted++;
   warn "LIMBFIT START slot=$slot wavelength=${w}A output=$outpath\n";
   my $status = run_limbfit_to_file(
     limbfit_exe => $cfg->{limbfit_exe},
@@ -126,8 +150,10 @@ for my $w (@wavelengths) {
 
 rmdir $outdir;
 exit 0 if $dry_run;
-my $failed = @failed ? join( q{,}, map { $_ . q{A} } @failed ) : 'none';
-warn "LIMBFIT SUMMARY slot=$slot succeeded=$succeeded attempted=$attempted failed=$failed\n";
+my $failed  = @failed  ? join( q{,}, map { $_ . q{A} } @failed )  : 'none';
+my $skipped = @skipped ? join( q{,}, map { $_ . q{A} } @skipped ) : 'none';
+warn
+"LIMBFIT SUMMARY slot=$slot succeeded=$succeeded attempted=$attempted failed=$failed skipped=$skipped\n";
 die "limbfit_aia failed for every wavelength at $slot\n"
   if $attempted > 0 && $succeeded == 0 && @failed;
 exit 0;

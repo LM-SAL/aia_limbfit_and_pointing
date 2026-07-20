@@ -32,6 +32,9 @@ return {
   sdo_series      => 'sdo.master_pointing',
   drms_filter     => '[?MISSVALS<99?]',
 
+  # Reject non-science pointing, ISS-open, and calibration frames.
+  drms_quality_filter => '[?(QUALITY & 397312)=0?]',
+
   # Deployment paths - NRT
   repo_root      => '/homef/nabil/Git/aia_limbfit_and_pointing',
   fits_root      => '/surge40/nabil/LimbFit_c/fits_nrt',

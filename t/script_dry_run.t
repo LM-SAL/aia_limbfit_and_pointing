@@ -110,6 +110,15 @@ print {$empty_fh} "use v5.42;\nexit 0;\n";
 close $empty_fh or die "Cannot close $empty_limbfit: $!";
 chmod 0755, $empty_limbfit or die "Cannot chmod $empty_limbfit: $!";
 
+my $quality_show_info = "$tmp/quality_show_info.pl";
+open my $quality_fh, '>', $quality_show_info or die "Cannot write $quality_show_info: $!";
+print {$quality_fh} "#!/usr/bin/env perl\nuse v5.42;\n";
+print {$quality_fh} "my \$query = \$ARGV[-1] // q{};\n";
+print {$quality_fh}
+"my \$skip = \$ENV{FAKE_QUALITY_SKIP_WAVELENGTH};\nprint defined \$skip && \$query =~ /WAVELNTH=\$skip/ && \$query =~ /QUALITY/ ? qq{0\\n} : qq{5\\n};\n";
+close $quality_fh or die "Cannot close $quality_show_info: $!";
+chmod 0755, $quality_show_info or die "Cannot chmod $quality_show_info: $!";
+
 my $mixed_cfg = "$tmp/mixed_config.pl";
 open my $mixed_cfg_fh, '>', $mixed_cfg or die "Cannot write $mixed_cfg: $!";
 print {$mixed_cfg_fh} "use v5.42;\nreturn {\n";
@@ -121,7 +130,9 @@ print {$mixed_cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
 print {$mixed_cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
 print {$mixed_cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
 print {$mixed_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$mixed_cfg_fh} "  fits_root => ", perl_quote("$tmp/mixedfits"), ",\n";
+print {$mixed_cfg_fh} "  drms_quality_filter => '[?(QUALITY & 397312)=0?]',\n";
+print {$mixed_cfg_fh} "  show_info => ", perl_quote($quality_show_info), ",\n";
+print {$mixed_cfg_fh} "  fits_root => ", perl_quote("$tmp/mixedfits"),   ",\n";
 print {$mixed_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
 print {$mixed_cfg_fh} "  limbfit_exe => ", perl_quote($mixed_limbfit), ",\n";
 print {$mixed_cfg_fh} "};\n";
@@ -147,6 +158,21 @@ ok(
 ok(
   -s "$tmp/mixedfits/2026/05/01/20260501_03_0171.limb",
   'ymdh keeps successful partial-run output file'
+);
+
+local $ENV{FAKE_QUALITY_SKIP_WAVELENGTH} = 94;
+$out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
+is( $? >> 8, 0, 'run_limbfit_ymdh.pl skips quality-rejected records' ) or diag $out;
+like(
+  $out,
+qr{LIMBFIT SKIP slot=2026-05-01T03:00Z wavelength=94A reason=all 5 source records rejected by data-quality filter},
+  'ymdh reports the quality-rejected wavelength'
+);
+unlike( $out, qr{LIMBFIT START .* wavelength=94A}, 'ymdh does not fit the rejected wavelength' );
+like(
+  $out,
+  qr{LIMBFIT SUMMARY .* succeeded=1 attempted=1 failed=none skipped=94A},
+  'ymdh summarizes skipped wavelengths separately'
 );
 
 my $empty_cfg = "$tmp/empty_config.pl";
