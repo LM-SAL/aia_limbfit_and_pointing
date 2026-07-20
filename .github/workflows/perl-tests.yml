@@ -17,7 +17,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cpanminus pdl
-          sudo cpanm --notest PDL::Stats
+
+      - name: Cache built PDL::Stats
+        id: cache-pdlstats
+        uses: actions/cache@v4
+        with:
+          path: ~/perl5
+          key: pdlstats-${{ runner.os }}-v1
+
+      - name: Build PDL::Stats
+        if: steps.cache-pdlstats.outputs.cache-hit != 'true'
+        run: cpanm --notest -l ~/perl5 PDL::Stats
+
+      - name: Add local PDL::Stats to PERL5LIB
+        run: |
+          echo "PERL5LIB=$HOME/perl5/lib/perl5:$PERL5LIB" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/perl5/bin:$PATH" >> "$GITHUB_PATH"
 
       - name: Show dependency versions
         run: |
