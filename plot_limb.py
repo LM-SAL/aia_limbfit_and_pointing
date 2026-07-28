@@ -16,7 +16,6 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
 DEFAULT_SENTINEL = 1234567.0
 DEFAULT_PERL = "/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl"
 
