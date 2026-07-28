@@ -49,6 +49,58 @@ Single-wavelength runs default to `aia.lev1`, `test_fits_root`, and a diagnostic
 plot. All-wavelength runs default to `lev1_series`, `fits_root`, and no plots.
 Use `-series`, `-outroot`, and `-plots`/`-no-plots` to override those defaults.
 
+## Invalid Level-1 geometry
+
+`R_SUN`, `CRPIX1`, and `CRPIX2` must all be finite and positive before the
+native fitter can locate a limb. Scan a bounded Level-1 record set before a
+repair or after a fitter failure:
+
+```console
+source config.csh
+
+# One wavelength in a 3-hour pointing window
+./scan_lev1_geometry.pl \
+  -ds='aia.lev1[2026.03.26_18/3h][?WAVELNTH=94?]'
+
+# All wavelengths in the same window
+./scan_lev1_geometry.pl -ds='aia.lev1[2026.03.26_18/3h]'
+```
+
+The scanner prints the FSN, observation time, wavelength, values, and invalid
+fields; it exits 1 if it finds any. It queries all records in the supplied
+record set and checks them locally: do not replace this with a DRMS `> 0`
+predicate, because PostgreSQL's `NaN` compares greater than ordinary numbers.
+
+### Hardening the JSOC executable
+
+An unpatched `limbfit_aia` can segfault when a Level-1 record has invalid
+geometry or no limb-annulus candidates. The native patch in
+[`patches/limbfit_aia_invalid_geometry.patch`](patches/limbfit_aia_invalid_geometry.patch)
+makes `limbcompute()` reject those cases and makes the application log and skip
+the failed five-image sum. It does not repair missing pointing metadata or
+create a limb fit from invalid input.
+
+Apply the patch in a JSOC source checkout, then rebuild and install the
+configured executable. These are C-shell commands for `solar4`:
+
+```console
+cd ~/Git/JSOC-orig
+git switch -c fix/limbfit-invalid-geometry
+git apply ~/Git/aia_limbfit_and_pointing/patches/limbfit_aia_invalid_geometry.patch
+
+source build/oneapi.csh
+make limbfit_aia
+make install
+
+# config.pl uses this executable; the diagnostic string confirms the install.
+strings bin/linux_avx2/limbfit_aia | rg 'invalid limb geometry'
+```
+
+If the branch already exists, use `git switch fix/limbfit-invalid-geometry`
+instead of creating it. Keep the source change on its own branch for upstream
+review; `config.pl` points this pipeline at
+`/homef/nabil/JSOC-orig/bin/linux_avx2/limbfit_aia`.
+
 ## Historical gap workflow
 
 Gap reports are read-only: they query DRMS and write a wavelength report to
