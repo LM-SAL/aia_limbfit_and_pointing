@@ -21,6 +21,10 @@ Deployment paths, DRMS series, wavelengths, and reducer thresholds live in
 `config.pl`; the C-shell environment lives in `config.csh`. Edit those two files
 when moving the pipeline.
 
+> JSOC interactive sessions use `csh` by default, not Bash. The examples below
+> use C-shell assignments such as “set work = \`mktemp -d\`”; use `work=$(mktemp -d)`
+> only when you have explicitly started Bash.
+
 The production cron entry on `solar4` runs hourly and acts every three hours:
 
 ```cron
@@ -109,7 +113,7 @@ rg 'A_171_[XY]0' \
 For either case, copy only the reviewed masterpoint before ingestion:
 
 ```console
-approved=$(mktemp -d)
+set approved = `mktemp -d`
 cp /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_20260501_0430_3hcadence.txt \
   "$approved/"
 ./update3h_mpt.pl -srcdir="$approved" -dry-run
@@ -144,7 +148,7 @@ the goal is only to build missing masterpoints. To fill DRMS, isolate and inspec
 the approved batch before ingestion:
 
 ```console
-approved=$(mktemp -d)
+set approved = `mktemp -d`
 cp /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_201011*.txt "$approved/"
 rg '^KWD ' "$approved"
 ./update3h_mpt.pl -srcdir="$approved" -dry-run
@@ -225,13 +229,17 @@ For one reviewed failure, copy the masterpoint, edit only the failed wavelength
 using that override, inspect the diff, and preview ingestion:
 
 ```console
-name=masterpoint_20260707_0430_3hcadence.txt
-srcdir=/surge40/nabil/LimbFit_c/mpt3h
-approved=$(mktemp -d)
+set name = masterpoint_20260707_0430_3hcadence.txt
+set srcdir = /surge40/nabil/LimbFit_c/mpt3h
+set approved = `mktemp -d`
 
 cp "$srcdir/$name" "$approved/$name"
 cat ./masterpoint_20260707_0430_3hcadence.overrides.txt
-${EDITOR:-vi} "$approved/$name"
+if ($?EDITOR) then
+  $EDITOR "$approved/$name"
+else
+  vi "$approved/$name"
+endif
 
 diff -u "$srcdir/$name" "$approved/$name"
 rg 'A_335_[XY]0' "$approved/$name"
@@ -245,7 +253,7 @@ slot with the same override, then inspect `$work` and pass it to
 `update3h_mpt.pl -dry-run` before publishing:
 
 ```console
-work=$(mktemp -d)
+set work = `mktemp -d`
 ./lf2mpr_nrt.pdl \
   -inpdir=/surge40/nabil/LimbFit_c/fits_nrt \
   -outdir="$work" \
