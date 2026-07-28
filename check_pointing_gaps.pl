@@ -210,29 +210,41 @@ for my $rec (@recs) {
   if ($repair) {
     my ( $yy, $mm, $dd, $hh ) = ts2ymdh( $rec->{start} );
     try {
+      my @failed_wl;
       for my $wl ( @{ $rec->{missing_wl} } ) {
-        my $fn = expected_limb_path( "$cfg->{check_gaps_dir}/limb", $yy, $mm, $dd, $hh, $wl );
-        if ( -e $fn && -s $fn ) {
-          print "# Skipping $yy-$mm-$dd $hh:00 $wl - limb file already exists\n";
-          if ($dry_run) {
-            print "# Would install $fn after review\n";
+        try {
+          my $fn = expected_limb_path( "$cfg->{check_gaps_dir}/limb", $yy, $mm, $dd, $hh, $wl );
+          if ( -e $fn && -s $fn ) {
+            print "# Skipping $yy-$mm-$dd $hh:00 $wl - limb file already exists\n";
+            if ($dry_run) {
+              print "# Would install $fn after review\n";
+              next;
+            }
+            _generate_plot( $yy, $mm, $dd, $hh, $wl, $fn );
+            _install_limb( $fn, $yy, $mm, $dd, $hh, $wl );
             next;
           }
-          _generate_plot( $yy, $mm, $dd, $hh, $wl, $fn );
-          _install_limb( $fn, $yy, $mm, $dd, $hh, $wl );
-          next;
-        }
-        if ( -z $fn ) {
-          if ($dry_run) {
-            print "# Would remove empty limb file $fn\n";
+          if ( -z $fn ) {
+            if ($dry_run) {
+              print "# Would remove empty limb file $fn\n";
+            }
+            else {
+              print "# Removing empty limb file $fn\n";
+              unlink $fn;
+            }
           }
-          else {
-            print "# Removing empty limb file $fn\n";
-            unlink $fn;
-          }
+          _exec_test_limbfit( $yy, $mm, $dd, $hh, $wl );
         }
-        _exec_test_limbfit( $yy, $mm, $dd, $hh, $wl );
+        catch ($e) {
+          chomp $e;
+          warn "Wavelength repair failed for $yy-$mm-$dd $hh:00 ${wl}A; continuing: $e\n";
+          push @failed_wl, $wl;
+        }
       }
+      die "Incomplete wavelength repair for $yy-$mm-$dd $hh:00: "
+        . join( q{, }, map { "${_}A" } @failed_wl )
+        . " failed\n"
+        if @failed_wl;
       _reduce_limb_set( $fits_root, $yy, $mm, $dd, $hh );
     }
     catch ($e) {

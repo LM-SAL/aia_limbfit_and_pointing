@@ -48,6 +48,10 @@ print {$show_fh} "} elsif (\$scenario eq 'overlapping_spans') {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T06:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T09:00:00Z 960.6 1024.4\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T06:00:00Z 2026-05-01T12:00:00Z 960.7 1024.5\\n};\n";
+print {$show_fh} "} elsif (\$scenario eq 'two_wavelength_gap') {\n";
+print {$show_fh}
+  "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3 961.5 1025.3\\n};\n";
+print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z NaN NaN NaN NaN\\n};\n";
 print {$show_fh} "} elsif (\$scenario eq 'wl_gap') {\n";
 print {$show_fh} "  print qq{2026-05-01T00:00:00Z 2026-05-01T03:00:00Z 960.5 1024.3\\n};\n";
 print {$show_fh} "  print qq{2026-05-01T03:00:00Z 2026-05-01T06:00:00Z NaN NaN\\n};\n";
@@ -118,10 +122,12 @@ print {$run_fh}
 print {$run_fh}
 "exit 3 if defined \$ENV{FAKE_RUN_FAIL_HOUR} && \$args{hour} == \$ENV{FAKE_RUN_FAIL_HOUR} && (\$args{series} // q{}) eq 'aia.lev1';\n";
 print {$run_fh}
+"exit 3 if defined \$ENV{FAKE_RUN_FAIL_WAVEL} && \$args{wavel} == \$ENV{FAKE_RUN_FAIL_WAVEL} && (\$args{series} // q{}) eq 'aia.lev1';\n";
+print {$run_fh}
 "my \$dir = sprintf '%s/%d/%02d/%02d', \$args{outroot}, \$args{year}, \$args{month}, \$args{day};\n";
 print {$run_fh} "make_path(\$dir);\n";
 print {$run_fh}
-"my \$path = sprintf '%s/%d%02d%02d_%02d_0094.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour};\n";
+"my \$path = sprintf '%s/%d%02d%02d_%02d_%04d.limb', \$dir, \$args{year}, \$args{month}, \$args{day}, \$args{hour}, \$args{wavel} // 94;\n";
 print {$run_fh} "open my \$fh, '>', \$path or die \"Cannot write \$path: \$!\";\n";
 print {$run_fh} "print {\$fh} \"ok\\n\" if (\$args{series} // q{}) eq 'aia.lev1';\n";
 print {$run_fh} "close \$fh or die \"Cannot close \$path: \$!\";\n";
@@ -352,6 +358,50 @@ ok(
   -s "$tmp/gap_check/stage/masterpoint_20260501_0600_3hcadence.txt",
   'later wavelength-gap slot is reduced after an earlier slot fails'
 );
+
+# --- a failed wavelength does not stop sibling wavelength repairs ---
+my $two_wavelength_config = "$tmp/two_wavelength_config.pl";
+open my $two_wavelength_cfg_fh, '>', $two_wavelength_config
+  or die "Cannot write $two_wavelength_config: $!";
+print {$two_wavelength_cfg_fh} "use v5.38;\nreturn {\n";
+print {$two_wavelength_cfg_fh} "  wl => [94, 304],\n";
+print {$two_wavelength_cfg_fh} "  tz => 'UTC',\n";
+print {$two_wavelength_cfg_fh} "  sumserver => 'test',\n";
+print {$two_wavelength_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
+print {$two_wavelength_cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
+print {$two_wavelength_cfg_fh} "  cadence_h => 3,\n";
+print {$two_wavelength_cfg_fh} "  nan_sentinel => 1234567,\n";
+print {$two_wavelength_cfg_fh} "  fits_root => ", perl_quote("$tmp/two_wavelength_production"),
+  ",\n";
+print {$two_wavelength_cfg_fh} "  check_gaps_dir => ", perl_quote("$tmp/two_wavelength_check"),
+  ",\n";
+print {$two_wavelength_cfg_fh} "  run_limbfit_ymdh => ", perl_quote($fake_run),    ",\n";
+print {$two_wavelength_cfg_fh} "  lf2mpr_nrt => ",       perl_quote($fake_reduce), ",\n";
+print {$two_wavelength_cfg_fh} "  plot_limb => ",        perl_quote($fake_plot),   ",\n";
+print {$two_wavelength_cfg_fh} "};\n";
+close $two_wavelength_cfg_fh or die "Cannot close $two_wavelength_config: $!";
+
+do {
+  local $ENV{AIA_LIMBFIT_CONFIG}  = $two_wavelength_config;
+  local $ENV{SHOW_INFO_SCENARIO}  = 'two_wavelength_gap';
+  local $ENV{FAKE_RUN_FAIL_WAVEL} = 94;
+  my $two_wavelength_out =
+qx("$^X" "$repo/check_pointing_gaps.pl" -repair -year=2026 -month=5 -day=1 -end_year=2026 -end_month=5 -end_day=1 2>&1);
+  is( $? >> 8, 0, 'repair continues after one wavelength fails' ) or diag $two_wavelength_out;
+  like(
+    $two_wavelength_out,
+    qr{Wavelength repair failed for 2026-5-1 3:00 94A; continuing},
+    'failed wavelength is reported before repairing its sibling'
+  );
+  like( $two_wavelength_out, qr{-wavel=304\b}, 'repair attempts the next missing wavelength' );
+  ok(
+    -s "$tmp/two_wavelength_production/2026/05/01/20260501_03_0304.limb",
+    'successful sibling wavelength is installed in production limb tree'
+  );
+  unlike( $two_wavelength_out, qr{fake_reduce[.]pl}, 'incomplete limb set is not reduced' );
+  ok( !-e "$tmp/two_wavelength_check/stage/masterpoint_20260501_0300_3hcadence.txt",
+    'incomplete limb set does not stage a masterpoint' );
+};
 
 # --- backfill failure continues to next slot ---
 my $continue_config = "$tmp/continue_config.pl";
