@@ -30,7 +30,7 @@ return {
   lev1_nrt2_start => '2022-06-08T06:34:53Z',
   mpt_series      => 'aia.master_pointing3h',
   sdo_series      => 'sdo.master_pointing',
-  drms_filter     => q{[?MISSVALS<99?][?R_SUN < 'NaN' and CRPIX1 < 'NaN' and CRPIX2 < 'NaN'?]},
+  drms_filter     => q{[?MISSVALS<99?]},
 
   # Reject non-science pointing, ISS-open, and calibration frames.
   drms_quality_filter => '[?(QUALITY & 397312)=0?]',
