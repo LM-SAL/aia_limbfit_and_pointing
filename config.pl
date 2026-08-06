@@ -30,9 +30,12 @@ return {
   lev1_nrt2_start => '2022-06-08T06:34:53Z',
   mpt_series      => 'aia.master_pointing3h',
   sdo_series      => 'sdo.master_pointing',
+
+  # Reject frames containing 99 or more missing pixels.
   drms_filter     => q{[?MISSVALS<99?]},
 
-  # Reject non-science pointing, ISS-open, and calibration frames.
+  # 397312 == 0x61000: reject non-science pointing (0x1000),
+  # ISS-open (0x20000), and calibration frames (0x40000).
   drms_quality_filter => '[?(QUALITY & 397312)=0?]',
 
   # Deployment paths - NRT
