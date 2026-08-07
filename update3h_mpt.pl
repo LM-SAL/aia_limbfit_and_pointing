@@ -6,7 +6,7 @@ use File::Basename qw(dirname);
 use lib "$RealBin/lib";
 use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
 use AIALimbfit::Slot
-  qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues);
+  qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues tstr2ts);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
@@ -31,6 +31,47 @@ my $sdo       = $cfg->{sdo_series};
 my $src       = $cfg->{pointing_dir};
 my $set_info  = $cfg->{set_info};
 my $show_info = $cfg->{show_info};
+
+sub _exact_record ( $show_info, $series, $trec ) {
+  my @lines = show_info_lines( $show_info, '-a', sprintf( '%s[%s]', $series, $trec ) );
+  return if @lines <= 1;
+
+  chomp @lines;
+  my %kv;
+  @kv{ split /\t/, $lines[0] } = split /\t/, $lines[1];
+  return \%kv;
+}
+
+sub _finalize_predecessor ( $show_info, $set_info, $series, $trec, $cadence_s, $dry_run ) {
+  my $previous_trec = iso8601( tstr2ts($trec) - $cadence_s );
+  my $previous      = _exact_record( $show_info, $series, $previous_trec );
+  return 1 unless $previous;
+  return 1 if defined $previous->{T_STOP} && $previous->{T_STOP} eq $trec;
+
+  my $date    = iso8601();
+  my $version = $previous->{VERSION} // 0;
+  my @cmd;
+  if ($version) {
+    my %replacement = %{$previous};
+    @replacement{qw(DATE T_STOP VERSION)} = ( $date, $trec, $version + 1 );
+    @cmd = ( $set_info, '-c', "ds=$series", map { "$_=$replacement{$_}" } sort keys %replacement );
+  }
+  else {
+    @cmd = (
+      $set_info,    sprintf( 'ds=%s[%s]', $series, $previous_trec ),
+      "DATE=$date", "T_STOP=$trec", 'VERSION=1',
+    );
+  }
+
+  if ($dry_run) {
+    print join( q{ }, @cmd ), "\n";
+    return 1;
+  }
+
+  return 1 if system(@cmd) == 0;
+  warn "set_info predecessor update failed for $previous_trec: exit=$?\n";
+  return 0;
+}
 
 validate_drms_runtime($show_info);
 die "set_info not found or not executable: $set_info\n" unless -x $set_info;
@@ -58,13 +99,13 @@ while ( my $mpu = shift @files ) {
   next unless $mpu =~ $masterpoint_re;
   my $slot        = slot_bounds_from_masterpoint($mpu) or next;
   my $cadence_h   = $cfg->{cadence_h} // 3;
-  my @slot_issues = slot_record_issues( $slot, cadence_s => $cadence_h * 3600 );
+  my $cadence_s   = $cadence_h * 3600;
+  my @slot_issues = slot_record_issues( $slot, cadence_s => $cadence_s );
   if (@slot_issues) {
     warn "Skipping $mpu: invalid slot (" . join( ', ', @slot_issues ) . ")\n";
     next;
   }
   my $trec  = $slot->{t_start};
-  my $tstop = $slot->{t_stop};
   my $fmtim = ( stat("$src/$mpu") )[9];
 
   my $qs    = series_contains_time_query( $sdo, $trec );
@@ -75,7 +116,6 @@ while ( my $mpu = shift @files ) {
   my %kvsdo;
   @kvsdo{ split /\t/, $lines[0] } = split /\t/, $lines[1];
 
-  $kvsdo{T_STOP}  = $tstop;
   $kvsdo{VERSION} = 1;
 
   my %mpkv;
@@ -88,31 +128,38 @@ while ( my $mpu = shift @files ) {
   die "No KWD values in '$src/$mpu'\n" unless %mpkv;
   @kvsdo{ keys %mpkv } = values %mpkv;
 
-  $qs    = series_contains_time_query( $series, $trec );
-  @lines = show_info_lines( $show_info, '-a', $qs );
+  my $kv = _exact_record( $show_info, $series, $trec );
 
-  if ( @lines > 1 ) {
-    chomp @lines;
-    my %kv;
-    @kv{ split /\t/, $lines[0] } = split /\t/, $lines[1];
+  # Age guard: skip if the existing DRMS record is newer than the masterpoint file on disk.
+  next if $kv && $kv->{DATE} gt iso8601($fmtim);
 
-    # Age guard: skip if the existing DRMS record is newer than the masterpoint file on disk.
-    next if $kv{DATE} gt iso8601($fmtim);
+  my $successor_trec = iso8601( tstr2ts($trec) + $cadence_s );
+  my $successor      = _exact_record( $show_info, $series, $successor_trec );
+  $kvsdo{T_STOP} = $successor ? $slot->{t_stop} : iso8601( $slot->{stop_epoch} + $cadence_s );
 
-    if ( $kv{VERSION} ) {
-      $kvsdo{VERSION} = $kv{VERSION} + 1;
+  if ($kv) {
+    if ( $kv->{VERSION} ) {
+      $kvsdo{VERSION} = $kv->{VERSION} + 1;
     }
     else {
       my $d       = iso8601();
       my @updates = ( 'DATE=' . $d, 'T_STOP=' . $kvsdo{T_STOP}, 'VERSION=1' );
       push @updates, map { "$_=$mpkv{$_}" } sort keys %mpkv;
+      my $target_ok;
       if ($dry_run) {
-        print "$set_info ", sprintf( 'ds=%s[%s]', $series, $kv{T_START} ), ' ',
+        print "$set_info ", sprintf( 'ds=%s[%s]', $series, $kv->{T_START} ), ' ',
           join( ' ', @updates ), "\n";
+        $target_ok = 1;
       }
       else {
-        system( $set_info, sprintf( 'ds=%s[%s]', $series, $kv{T_START} ), @updates, ) == 0
-          or warn "set_info update failed for $kv{T_START}: exit=$?\n";
+        $target_ok =
+          system( $set_info, sprintf( 'ds=%s[%s]', $series, $kv->{T_START} ), @updates, ) == 0;
+        warn "set_info update failed for $kv->{T_START}: exit=$?\n" unless $target_ok;
+      }
+      if ($target_ok) {
+        my $finalized =
+          _finalize_predecessor( $show_info, $set_info, $series, $trec, $cadence_s, $dry_run );
+        unlink "$src/$mpu" if $del && !$dry_run && $finalized;
       }
       next;
     }
@@ -133,5 +180,7 @@ while ( my $mpu = shift @files ) {
     system(@cmd) == 0 or die "set_info failed for $trec\n";
   }
 
-  unlink "$src/$mpu" if $del;
+  my $finalized =
+    _finalize_predecessor( $show_info, $set_info, $series, $trec, $cadence_s, $dry_run );
+  unlink "$src/$mpu" if $del && !$dry_run && $finalized;
 }

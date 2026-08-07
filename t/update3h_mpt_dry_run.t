@@ -10,6 +10,14 @@ sub perl_quote ($value) {
   return "'$value'";
 }
 
+sub write_masterpoint ($dir, $name) {
+  my $path = "$dir/$name";
+  open my $fh, '>', $path or die "Cannot write $path: $!";
+  print {$fh} "KWD A_171_X0\t1.25\nKWD A_171_Y0\t-2.50\n";
+  close $fh or die "Cannot close $path: $!";
+  return $path;
+}
+
 my $repo = "$Bin/..";
 my $tmp  = tempdir( CLEANUP => 1 );
 
@@ -51,17 +59,44 @@ if ($query =~ /sdo[.]master_pointing/) {
   print "2026-05-01T00:00:00Z\t2026-05-01T03:00:00Z\t2026-05-01T00:00:00Z\t0\t42\n";
 }
 elsif ($query =~ /test[.]series/) {
-  if ($scenario eq 'version0') {
-    print "T_START\tT_STOP\tDATE\tVERSION\n";
-    print "2026-05-01T00:00:00Z\t2026-05-01T03:00:00Z\t2026-05-01T00:00:00Z\t0\n";
+  my ($exact) = $query =~ /test[.]series\[([^]]+)\]/;
+  my %records = (
+    '2026-05-01T00:00:00Z' => [ '2026-05-01T06:00:00Z', '2026-05-01T00:00:00Z', 0 ],
+    '2026-05-01T06:00:00Z' => [ '2026-05-01T12:00:00Z', '2026-05-01T00:00:00Z', 0 ],
+  );
+  my $record;
+  if ($scenario eq 'version0' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = [ '2026-05-01T03:00:00Z', '2026-05-01T00:00:00Z', 0 ];
   }
-  elsif ($scenario eq 'version1') {
-    print "T_START\tT_STOP\tDATE\tVERSION\n";
-    print "2026-05-01T00:00:00Z\t2026-05-01T04:30:00Z\t2026-05-01T00:00:00Z\t1\n";
+  elsif ($scenario eq 'version1' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = [ '2026-05-01T04:30:00Z', '2026-05-01T00:00:00Z', 1 ];
   }
-  elsif ($scenario eq 'stale') {
+  elsif ($scenario eq 'stale' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = [ '2026-05-01T03:00:00Z', '2099-01-01T00:00:00Z', 1 ];
+  }
+  elsif ($scenario eq 'consecutive' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = $records{$exact};
+  }
+  elsif ($scenario eq 'missing_middle' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = $records{$exact};
+  }
+  elsif ($scenario eq 'already_finalized' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = [ '2026-05-01T03:00:00Z', '2026-05-01T00:00:00Z', 0 ];
+  }
+  elsif ($scenario eq 'delayed' && $exact eq '2026-05-01T00:00:00Z') {
+    $record = $records{$exact};
+  }
+  elsif ($scenario eq 'delayed' && $exact eq '2026-05-01T06:00:00Z') {
+    $record = $records{$exact};
+  }
+
+  if ($scenario eq 'previous_version1' && $exact eq '2026-05-01T00:00:00Z') {
+    print "T_START\tT_STOP\tDATE\tVERSION\tA_171_X0\tA_171_Y0\n";
+    print "$exact\t2026-05-01T06:00:00Z\t2026-05-01T00:00:00Z\t1\t0.50\t-0.75\n";
+  }
+  elsif ($record) {
     print "T_START\tT_STOP\tDATE\tVERSION\n";
-    print "2026-05-01T00:00:00Z\t2026-05-01T03:00:00Z\t2099-01-01T00:00:00Z\t1\n";
+    print "$exact\t$record->[0]\t$record->[1]\t$record->[2]\n";
   }
 }
 exit 0;
@@ -101,7 +136,7 @@ my $exit   = $? >> 8;
 
 is( $exit, 0, 'update3h_mpt.pl dry run exits successfully' ) or diag $output;
 like( $output, qr/\bT_START=2026-05-01T00:00:00Z\b/, 'dry run writes corrected slot start' );
-like( $output, qr/\bT_STOP=2026-05-01T03:00:00Z\b/,   'dry run writes corrected slot stop' );
+like( $output, qr/\bT_STOP=2026-05-01T06:00:00Z\b/,   'new record provisionally covers six hours' );
 like( $output, qr/\bA_171_X0=1[.]25\b/,               'dry run includes X keyword from masterpoint file' );
 like( $output, qr/\bA_171_Y0=-2[.]50\b/,              'dry run includes Y keyword from masterpoint file' );
 unlike( $output, qr/\bA_999_X0=999\b/,                'dry run ignores stale backup-like masterpoint files' );
@@ -122,6 +157,9 @@ unlike(
   qr/\Q$unexpected_drms_time\E/,
   'show_info queries do not use filename center time'
 );
+unlike( $queries, qr/test[.]series\[\?T_START<=/, 'target lookups are not contains-time queries' );
+like( $queries, qr/test[.]series\[2026-05-01T00:00:00Z\]/,
+  'target lookup selects the exact T_START' );
 
 # VERSION=0 existing record: update in-place, no duplicate create
 unlink $query_log;
@@ -149,7 +187,7 @@ $exit   = $? >> 8;
 is( $exit, 0, 'VERSION=1 dry run exits successfully' ) or diag $output;
 like( $output, qr/\bset_info\s+-c\b/, 'VERSION=1 triggers create of new record' );
 like( $output, qr/\bVERSION=2\b/, 'VERSION=1 increments to VERSION=2' );
-like( $output, qr/\bT_STOP=2026-05-01T03:00:00Z\b/, 'VERSION=1 uses correct T_STOP from masterpoint, not inherited wrong value' );
+like( $output, qr/\bT_STOP=2026-05-01T06:00:00Z\b/, 'VERSION=1 uses provisional six-hour T_STOP' );
 unlike( $output, qr/\bT_STOP=2026-05-01T04:30:00Z\b/, 'VERSION=1 does not inherit wrong T_STOP from existing record' );
 
 # Stale record (age guard): skip entirely
@@ -161,6 +199,89 @@ $output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.se
 $exit   = $? >> 8;
 is( $exit, 0, 'stale record dry run exits successfully' ) or diag $output;
 unlike( $output, qr/\bset_info\b/, 'stale record skips all set_info commands' );
+
+# Consecutive successful slots: the new slot gets six hours and the exact
+# predecessor is shortened to three hours.
+my $held_masterpoint = "$masterpoint.hold";
+rename $masterpoint, $held_masterpoint or die "Cannot hold $masterpoint: $!";
+my $next_masterpoint = write_masterpoint( $stage, 'masterpoint_20260501_0430_3hcadence.txt' );
+local $ENV{SHOW_INFO_SCENARIO} = 'consecutive';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'consecutive-success dry run exits successfully' ) or diag $output;
+like( $output, qr/\bT_START=2026-05-01T03:00:00Z\b/, 'future slot starts at the next cadence' );
+like( $output, qr/\bT_STOP=2026-05-01T09:00:00Z\b/, 'future slot gets provisional six-hour coverage' );
+like(
+  $output,
+  qr/ds=test[.]series\[2026-05-01T00:00:00Z\].*T_STOP=2026-05-01T03:00:00Z/s,
+  'successful future slot shortens the exact predecessor'
+);
+unlink $next_masterpoint or die "Cannot remove $next_masterpoint: $!";
+rename $held_masterpoint, $masterpoint or die "Cannot restore $masterpoint: $!";
+
+# A missing immediate slot keeps the older row provisional, preserving its
+# coverage across the failed three-hour window.
+rename $masterpoint, $held_masterpoint or die "Cannot hold $masterpoint: $!";
+my $later_masterpoint = write_masterpoint( $stage, 'masterpoint_20260501_0730_3hcadence.txt' );
+local $ENV{SHOW_INFO_SCENARIO} = 'missing_middle';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'missing-middle dry run exits successfully' ) or diag $output;
+like( $output, qr/\bT_START=2026-05-01T06:00:00Z\b/, 'later successful slot is published' );
+like( $output, qr/\bT_STOP=2026-05-01T12:00:00Z\b/, 'later slot gets six-hour coverage' );
+unlike(
+  $output,
+  qr/ds=test[.]series\[2026-05-01T00:00:00Z\].*T_STOP=2026-05-01T03:00:00Z/s,
+  'missing immediate predecessor does not shorten the older fallback row'
+);
+unlink $later_masterpoint or die "Cannot remove $later_masterpoint: $!";
+rename $held_masterpoint, $masterpoint or die "Cannot restore $masterpoint: $!";
+
+# Retrying a slot whose predecessor is already finalized is idempotent.
+rename $masterpoint, $held_masterpoint or die "Cannot hold $masterpoint: $!";
+$next_masterpoint = write_masterpoint( $stage, 'masterpoint_20260501_0430_3hcadence.txt' );
+local $ENV{SHOW_INFO_SCENARIO} = 'already_finalized';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'already-finalized dry run exits successfully' ) or diag $output;
+unlike(
+  $output,
+  qr/ds=test[.]series\[2026-05-01T00:00:00Z\].*T_STOP=2026-05-01T03:00:00Z/s,
+  'already-finalized predecessor is not rewritten'
+);
+unlink $next_masterpoint or die "Cannot remove $next_masterpoint: $!";
+rename $held_masterpoint, $masterpoint or die "Cannot restore $masterpoint: $!";
+
+# A versioned predecessor is replaced with its own pointing values intact.
+rename $masterpoint, $held_masterpoint or die "Cannot hold $masterpoint: $!";
+$next_masterpoint = write_masterpoint( $stage, 'masterpoint_20260501_0430_3hcadence.txt' );
+local $ENV{SHOW_INFO_SCENARIO} = 'previous_version1';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'versioned-predecessor dry run exits successfully' ) or diag $output;
+like( $output, qr/\bVERSION=2\b/, 'versioned predecessor increments VERSION' );
+like( $output, qr/A_171_X0=0[.]50.*A_171_Y0=-0[.]75/s,
+  'versioned predecessor keeps its own pointing values' );
+unlink $next_masterpoint or die "Cannot remove $next_masterpoint: $!";
+rename $held_masterpoint, $masterpoint or die "Cannot restore $masterpoint: $!";
+
+# A delayed repair sees its already-recorded successor and is canonicalized to
+# a three-hour row immediately.
+rename $masterpoint, $held_masterpoint or die "Cannot hold $masterpoint: $!";
+$next_masterpoint = write_masterpoint( $stage, 'masterpoint_20260501_0430_3hcadence.txt' );
+local $ENV{SHOW_INFO_SCENARIO} = 'delayed';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'delayed-repair dry run exits successfully' ) or diag $output;
+like( $output, qr/\bT_START=2026-05-01T03:00:00Z\b/, 'delayed repair publishes the missing slot' );
+like( $output, qr/\bT_STOP=2026-05-01T06:00:00Z\b/, 'existing successor canonicalizes delayed repair to three hours' );
+like(
+  $output,
+  qr/ds=test[.]series\[2026-05-01T00:00:00Z\].*T_STOP=2026-05-01T03:00:00Z/s,
+  'delayed repair shortens its exact predecessor'
+);
+unlink $next_masterpoint or die "Cannot remove $next_masterpoint: $!";
+rename $held_masterpoint, $masterpoint or die "Cannot restore $masterpoint: $!";
 
 # Off-grid masterpoint filename: skip with warning
 my $bad_stage = "$tmp/bad_stage";

@@ -135,9 +135,11 @@ regenerated wavelength under `fits_root`, but it does not write DRMS. Inspect th
 limb files, plots, and `$check_gaps_dir/stage/masterpoint_*.txt`. Copy only approved
 masterpoints to a clean directory before invoking `update3h_mpt.pl`, as shown below.
 
-`update3h_mpt.pl` maps the centre time encoded in a masterpoint filename to the
-slot's `T_START`/`T_STOP`, preserves newer DRMS records, and increments `VERSION`
-when replacing an existing record.
+`update3h_mpt.pl` maps the centre time encoded in a masterpoint filename to a
+3-hour-cadence row. A newly published row provisionally covers 6 hours; once the
+adjacent next row is present, the earlier row is shortened to its normal 3-hour
+span. Newer DRMS records are preserved, and `VERSION` is incremented when an
+existing record is replaced.
 
 ### Gap examples
 
