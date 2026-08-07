@@ -85,6 +85,55 @@ $out = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 
 is( $? >> 8, 0,   'cron_submit_slot.pl skipped dry-run exits successfully' ) or diag $out;
 is( $out,    q{}, 'cron dry-run prints nothing for off-cadence hour' );
 
+# Pipeline failure mails the log tail to mail_to
+my $fake_repo = "$tmp/fake_repo";
+my $fake_bin  = "$tmp/fake_bin";
+my $mail_log  = "$tmp/mailx.log";
+mkdir $fake_repo or die "Cannot mkdir $fake_repo: $!";
+mkdir $fake_bin  or die "Cannot mkdir $fake_bin: $!";
+
+open my $pipe_fh, '>', "$fake_repo/pipeline_slot_nrt.csh"
+  or die "Cannot write fake pipeline: $!";
+print {$pipe_fh} "#!/bin/sh\necho limbfit-boom-detail\nexit 7\n";
+close $pipe_fh or die "Cannot close fake pipeline: $!";
+chmod 0755, "$fake_repo/pipeline_slot_nrt.csh" or die "Cannot chmod fake pipeline: $!";
+
+open my $mailx_fh, '>', "$fake_bin/mailx" or die "Cannot write fake mailx: $!";
+print {$mailx_fh} "#!/usr/bin/env perl\nuse v5.38;\n";
+print {$mailx_fh} "open my \$fh, '>>', ", perl_quote($mail_log), " or die \$!;\n";
+print {$mailx_fh} "print {\$fh} join(' ', \@ARGV), \"\\n\", do { local \$/; <STDIN> };\n";
+print {$mailx_fh} "close \$fh or die \$!;\n";
+close $mailx_fh or die "Cannot close fake mailx: $!";
+chmod 0755, "$fake_bin/mailx" or die "Cannot chmod fake mailx: $!";
+
+my $mail_cfg = "$tmp/mail_config.pl";
+open my $mail_cfg_fh, '>', $mail_cfg or die "Cannot write $mail_cfg: $!";
+print {$mail_cfg_fh} "use v5.38;\nreturn {\n";
+print {$mail_cfg_fh} "  sumserver => 'test',\n";
+print {$mail_cfg_fh} "  sge_root => '/SGE',\n";
+print {$mail_cfg_fh} "  tz => 'UTC',\n";
+print {$mail_cfg_fh} "  logs_dir => ",  perl_quote("$tmp/logs"),  ",\n";
+print {$mail_cfg_fh} "  repo_root => ", perl_quote($fake_repo),   ",\n";
+print {$mail_cfg_fh} "  mail_to => 'ops1,ops2',\n";
+print {$mail_cfg_fh} "};\n";
+close $mail_cfg_fh or die "Cannot close $mail_cfg: $!";
+
+{
+  local $ENV{AIA_LIMBFIT_CONFIG} = $mail_cfg;
+  local $ENV{PATH}               = "$fake_bin:$ENV{PATH}";
+  $out = qx("$^X" "$repo/cron_submit_slot.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
+}
+isnt( $? >> 8, 0, 'cron run still fails after mailing' );
+like( $out, qr/pipeline failed for 20260501_03/, 'cron failure is reported' );
+ok( -s $mail_log, 'pipeline failure sends a notification email' );
+my $mail = do {
+  open my $fh, '<', $mail_log or die "Cannot read $mail_log: $!";
+  local $/;
+  <$fh>;
+};
+like( $mail, qr/-s 3h MPT pipeline failed 20260501_03 ops1 ops2/, 'email has subject and recipients' );
+like( $mail, qr/limbfit-boom-detail/, 'email body includes the log tail' );
+
 my $fail_limbfit = "$tmp/fail_limbfit.pl";
 open my $fail_fh, '>', $fail_limbfit or die "Cannot write $fail_limbfit: $!";
 print {$fail_fh} "#!/usr/bin/env perl\n";

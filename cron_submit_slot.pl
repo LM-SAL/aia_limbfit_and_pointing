@@ -31,5 +31,23 @@ if ($dry_run) {
   print "$cmd\n";
   exit 0;
 }
-system($cmd) == 0
-  or die "pipeline failed for $run: exit=$?\n";
+exit 0 if system($cmd) == 0;
+
+my $message    = "pipeline failed for $run: exit=$?\n";
+my @recipients = split /,/, ( $cfg->{mail_to} // q{} );
+if (@recipients) {
+  my @tail;
+  if ( open my $log_fh, '<', "$log/$run.log" ) {
+    @tail = <$log_fh>;
+    close $log_fh or warn "Can't close '$log/$run.log': $!\n";
+    splice @tail, 0, @tail - 20 if @tail > 20;
+  }
+  if ( open my $mail_fh, q{|-}, q{mailx}, '-s', "3h MPT pipeline failed $run", @recipients ) {
+    print {$mail_fh} $message, "$log/$run.log\n\n", @tail;
+    close $mail_fh or warn "mailx failed: $?\n";
+  }
+  else {
+    warn "cannot start mailx: $!\n";
+  }
+}
+die $message;
