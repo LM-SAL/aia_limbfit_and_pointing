@@ -226,6 +226,50 @@ For filesystem-only inventory, use `lf_inv.pl`:
 ./lf_inv.pl -year=2024 -month=3 -fits_root=/other/path
 ```
 
+### Split clusters during backfill
+
+A split cluster (see [Split clusters](#split-clusters)) does not abort a batch
+repair: the reducer writes `NaN` for the failed wavelength and the masterpoint
+is staged anyway. Screen the stage directory before approving a batch, and
+confirm each hit against its diagnostic plot or limb file under
+`$check_gaps_dir/limb`:
+
+```console
+rg -l 'NaN' /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_201011*.txt
+./plot_limb.py /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_0094.limb
+```
+
+To repair a flagged slot, re-reduce it from a temporary input tree containing
+every wavelength's limb file, with the failed one truncated to its physically
+valid segment. `-require-all` guarantees the result is a complete masterpoint
+rather than a partial one:
+
+```console
+set fix = `mktemp -d`
+mkdir -p "$fix/in/2010/11/05" "$fix/out"
+cp /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_*.limb \
+  "$fix/in/2010/11/05/"
+
+# Keep only the valid segment of the failed wavelength (here: first 88 rows)
+head -n 88 /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_0094.limb \
+  > "$fix/in/2010/11/05/20101105_09_0094.limb"
+
+./lf2mpr_nrt.pdl -inpdir="$fix/in" -outdir="$fix/out" \
+  -year=2010 -month=11 -day=5 -hour=9 -require-all
+```
+
+The masterpoint filename and centre time come from the slot arguments, not the
+data span, so a fit over the surviving 60–90 minutes still produces a normal
+`masterpoint_20101105_1030_3hcadence.txt` that ingests like any other row.
+Copy it over the staged `NaN` version in the approved directory — never keep
+both, since `update3h_mpt.pl` ingests every file in `-srcdir`:
+
+```console
+cp "$fix/out/masterpoint_20101105_1030_3hcadence.txt" "$approved/"
+```
+
+Then continue with the usual `-dry-run` and publish steps for the batch.
+
 ## Reduction and recovery
 
 `lf2mpr_nrt.pdl` reduces all configured wavelengths for one slot using two-pass
