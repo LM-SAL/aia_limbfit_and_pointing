@@ -29,12 +29,13 @@ if ($ENV{SHOW_INFO_LOG}) {
   close $log_fh or die "Cannot close SHOW_INFO_LOG: $!";
 }
 if (($ENV{SHOW_INFO_SCENARIO} // 'invalid') eq 'valid') {
-  print "1 2026-03-26T17:00:00Z 94 1603.3 2055.5 2048.5\n";
+  print "1 2026-03-26T17:00:00Z 94 1603.3 2055.5 2048.5 0 0\n";
 }
 else {
-  print "1 2026-03-26T17:00:00Z 94 1603.3 2055.5 2048.5\n";
-  print "2 2026-03-26T18:00:00Z 94 1603.3 nan nan\n";
-  print "3 2026-03-26T18:00:00Z 304 0 2055.5 -1\n";
+  print "1 2026-03-26T17:00:00Z 94 1603.3 2055.5 2048.5 0 0\n";
+  print "2 2026-03-26T18:00:00Z 94 1603.3 nan nan nan 0\n";
+  print "3 2026-03-26T18:00:00Z 304 0 2055.5 -1 0 -12.4\n";
+  print "4 2026-03-26T18:00:00Z 171 1603.3 2055.5 2048.5 nan 0\n";
 }
 SCRIPT
 close $show_fh or die "Cannot close $show_info: $!";
@@ -55,16 +56,17 @@ local $ENV{SHOW_INFO_LOG}      = $query_log;
 local $ENV{SHOW_INFO_SCENARIO} = 'invalid';
 my $output = qx("$^X" "$repo/scan_lev1_geometry.pl" -ds='aia.lev1[test]' 2>&1);
 is( $? >> 8, 1, 'invalid geometry produces a non-zero status' ) or diag $output;
-like( $output, qr{FSN=2 .* fields=CRPIX1,CRPIX2}, 'NaN image-center values are reported' );
-like( $output, qr{FSN=3 .* fields=R_SUN,CRPIX2}, 'zero and negative values are reported' );
-like( $output, qr{SUMMARY records=3 invalid=2}, 'invalid scan summary is correct' );
+like( $output, qr{FSN=2 .* fields=CRPIX1,CRPIX2,CRVAL1}, 'NaN image-center values are reported' );
+like( $output, qr{FSN=3 .* fields=R_SUN,CRPIX2\b},       'zero and negative values are reported' );
+like( $output, qr{FSN=4 .* fields=CRVAL1\b}, 'NaN CRVAL is reported while zero CRVAL is accepted' );
+like( $output, qr{SUMMARY records=4 invalid=3}, 'invalid scan summary is correct' );
 
 open my $log_fh, '<', $query_log or die "Cannot read $query_log: $!";
 my $query = <$log_fh>;
 close $log_fh or die "Cannot close $query_log: $!";
 like(
   $query,
-  qr{key=FSN,T_OBS,WAVELNTH,R_SUN,CRPIX1,CRPIX2\b},
+  qr{key=FSN,T_OBS,WAVELNTH,R_SUN,CRPIX1,CRPIX2,CRVAL1,CRVAL2\b},
   'scanner requests the geometry keywords',
 );
 

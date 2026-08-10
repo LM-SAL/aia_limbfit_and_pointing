@@ -3,7 +3,7 @@ use v5.38;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
 use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
-use File::Basename qw(dirname);
+use File::Basename          qw(dirname);
 use Getopt::Long;
 use Scalar::Util qw(looks_like_number);
 
@@ -12,7 +12,8 @@ sub usage {
 Usage: scan_lev1_geometry.pl -ds='<DRMS record set>'
 
 Reports Level-1 records whose R_SUN, CRPIX1, or CRPIX2 is NaN, non-numeric,
-zero, or negative. The record set is required so a scan is always bounded.
+zero, or negative, or whose CRVAL1 or CRVAL2 is NaN or non-numeric (zero is
+the nominal CRVAL). The record set is required so a scan is always bounded.
 USAGE
 }
 
@@ -29,7 +30,7 @@ if ($help) {
 die usage() unless defined $ds && length $ds;
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
-my $cfg = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
+my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
 local $ENV{TZ}        = $cfg->{tz};
 local $ENV{SUMSERVER} = $ENV{SUMSERVER} // $cfg->{sumserver};
 my $drms_bin_dir = dirname( $cfg->{show_info} );
@@ -46,7 +47,7 @@ local $ENV{DRMS_SRC_INSTALL_DIR}    = $ENV{DRMS_SRC_INSTALL_DIR}    // "$drms_ba
 my $show_info = $cfg->{show_info};
 validate_drms_runtime($show_info);
 
-my @keys  = qw(FSN T_OBS WAVELNTH R_SUN CRPIX1 CRPIX2);
+my @keys  = qw(FSN T_OBS WAVELNTH R_SUN CRPIX1 CRPIX2 CRVAL1 CRVAL2);
 my @lines = show_info_lines( $show_info, '-q', 'key=' . join( ',', @keys ), $ds );
 chomp @lines;
 @lines = grep { /\S/ } @lines;
@@ -60,12 +61,18 @@ for my $line (@lines) {
 
   my @bad;
   for my $index ( 3 .. $#keys ) {
-    push @bad, $keys[$index] if invalid_geometry_value( $values[$index] );
+    my $key = $keys[$index];
+    my $is_bad =
+      $key =~ /\ACRVAL/
+      ? !finite_number( $values[$index] )
+      : invalid_geometry_value( $values[$index] );
+    push @bad, $key if $is_bad;
   }
   next unless @bad;
 
   $invalid++;
-  printf "INVALID FSN=%s T_OBS=%s WAVELNTH=%s R_SUN=%s CRPIX1=%s CRPIX2=%s fields=%s\n",
+  printf
+"INVALID FSN=%s T_OBS=%s WAVELNTH=%s R_SUN=%s CRPIX1=%s CRPIX2=%s CRVAL1=%s CRVAL2=%s fields=%s\n",
     @values, join( ',', @bad );
 }
 
@@ -73,8 +80,12 @@ printf "SUMMARY records=%d invalid=%d\n", $records, $invalid;
 exit( $invalid ? 1 : 0 );
 
 sub invalid_geometry_value ($value) {
-  return 1 unless defined $value && length $value;
-  return 1 if $value =~ /\A[+-]?(?:nan|inf(?:inity)?)\z/i;
-  return 1 unless looks_like_number($value);
+  return 1 unless finite_number($value);
   return $value <= 0;
+}
+
+sub finite_number ($value) {
+  return 0 unless defined $value && length $value;
+  return 0 if $value =~ /\A[+-]?(?:nan|inf(?:inity)?)\z/i;
+  return looks_like_number($value);
 }
