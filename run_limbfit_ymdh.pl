@@ -2,22 +2,19 @@
 use v5.38;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::DrmsRuntime qw(show_info_lines);
+use AIALimbfit::DrmsRuntime qw(configure_drms_environment show_info_lines);
+use AIALimbfit::Inventory   qw(limb_path);
 use AIALimbfit::LimbfitCommand
-  qw(dated_dir limb_filename limbfit_command limbfit_query plot_command run_limbfit_to_file validate_limbfit_args wavelength_sum);
+  qw(limbfit_command limbfit_query plot_command run_limbfit_to_file validate_limbfit_args wavelength_sum);
+use File::Basename qw(dirname);
 use Getopt::Long;
 use File::Path qw(make_path);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-local $ENV{SUMSERVER}               = $cfg->{sumserver};
-local $ENV{SGE_ROOT}                = $cfg->{sge_root};
-local $ENV{DRMS_ROOT_DIR}           = $cfg->{drms_root_dir};
-local $ENV{DRMS_PARAMS_INSTALL_DIR} = $cfg->{drms_params_install_dir};
-local $ENV{DRMS_SCRS_INSTALL_DIR}   = $cfg->{drms_scrs_install_dir};
-local $ENV{DRMS_SRC_INSTALL_DIR}    = $cfg->{drms_src_install_dir};
+configure_drms_environment($cfg);
 
-my ( $yr, $mo, $hr, $da, $dur );
+my ( $yr, $mo, $hr, $da );
 my $filt         = $cfg->{drms_filter};
 my $quality_filt = $cfg->{drms_quality_filter} // q{};
 my $show_info    = $cfg->{show_info};
@@ -26,22 +23,19 @@ my $dry_run = 0;
 my $plots;
 
 GetOptions(
-  'filter=s'  => \$filt,
   'series=s'  => \$series,
   'outroot=s' => \$outroot,
   'year=i'    => \$yr,
   'month=i'   => \$mo,
   'day=i'     => \$da,
   'hour=i'    => \$hr,
-  'dur=s'     => \$dur,
   'wavel=i'   => \$wavelength,
   'dry-run'   => \$dry_run,
   'plots!'    => \$plots,
 ) or die "Invalid options\n";
-$dur     //= '3h';
-$outroot //= defined $wavelength ? $cfg->{test_fits_root} : $cfg->{fits_root};
-$series  //= defined $wavelength ? 'aia.lev1'             : $cfg->{lev1_series};
-$plots   //= defined $wavelength ? 1                      : 0;
+$outroot //= defined $wavelength ? "$cfg->{check_gaps_dir}/limb" : $cfg->{fits_root};
+$series  //= defined $wavelength ? 'aia.lev1'                    : $cfg->{lev1_series};
+$plots   //= defined $wavelength ? 1                             : 0;
 validate_limbfit_args(
   year        => $yr,
   month       => $mo,
@@ -52,8 +46,9 @@ validate_limbfit_args(
 );
 
 sub _status_text ($status) {
+  return "exec error: $!" if $status == -1;
   return 'signal ' . ( $status & 127 ) if $status & 127;
-  return 'exit ' .   ( $status >> 8 );
+  return 'exit ' . ( $status >> 8 );
 }
 
 sub _record_count ($query) {
@@ -64,8 +59,8 @@ sub _record_count ($query) {
   return 0 + $count;
 }
 
-my $outdir = dated_dir( $outroot, $yr, $mo, $da );
-make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
+my $outdir = dirname( limb_path( $outroot, $yr, $mo, $da, $hr, $wavelength // $cfg->{wl}[0] ) );
+make_path( $outdir, { chmod => oct('755') } ) if !$dry_run && !-d $outdir;
 
 my $attempted = 0;
 my $succeeded = 0;
@@ -75,20 +70,19 @@ my @wavelengths = defined $wavelength ? ($wavelength) : @{ $cfg->{wl} };
 my $slot        = sprintf '%04d-%02d-%02dT%02d:00Z', $yr, $mo, $da, $hr;
 
 for my $w (@wavelengths) {
-  my $outnam     = limb_filename( $yr, $mo, $da, $hr, $w );
   my %query_args = (
     series     => $series,
     year       => $yr,
     month      => $mo,
     day        => $da,
     hour       => $hr,
-    duration   => $dur,
+    duration   => $cfg->{cadence_h} . 'h',
     wavelength => $w,
   );
   my $source_qs = limbfit_query( %query_args, filter => $filt );
   my $qs        = limbfit_query( %query_args, filter => $filt . $quality_filt );
   my $sum       = wavelength_sum($w);
-  my $outpath   = "$outdir/$outnam";
+  my $outpath   = limb_path( $outroot, $yr, $mo, $da, $hr, $w );
   my $cmd       = limbfit_command(
     limbfit_exe => $cfg->{limbfit_exe},
     query       => $qs,
@@ -98,8 +92,7 @@ for my $w (@wavelengths) {
 
   if ($dry_run) {
     print "$cmd\n";
-    print join( q{ },
-      plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) ),
+    print join( q{ }, plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath ) ),
       "\n"
       if $plots;
     next;
@@ -112,6 +105,7 @@ for my $w (@wavelengths) {
       ? "all $source_count source records rejected by data-quality filter"
       : 'no source records';
     warn "LIMBFIT SKIP slot=$slot wavelength=${w}A reason=$reason\n";
+    unlink $outpath if -e $outpath;
     push @skipped, $w;
     next;
   }
@@ -142,18 +136,19 @@ for my $w (@wavelengths) {
 
   $succeeded++;
   warn "LIMBFIT OK slot=$slot wavelength=${w}A output=$outpath\n";
-  system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath, perl => $^X ) )
-    == 0
+  system( plot_command( plotter => "$RealBin/plot_limb.py", limb_path => $outpath ) ) == 0
     or warn "plot_limb.py failed for $outpath: exit=$?\n"
     if $plots;
 }
 
-rmdir $outdir;
 exit 0 if $dry_run;
+rmdir $outdir;
 my $failed  = @failed  ? join( q{,}, map { $_ . q{A} } @failed )  : 'none';
 my $skipped = @skipped ? join( q{,}, map { $_ . q{A} } @skipped ) : 'none';
 warn
 "LIMBFIT SUMMARY slot=$slot succeeded=$succeeded attempted=$attempted failed=$failed skipped=$skipped\n";
-die "limbfit_aia failed for every wavelength at $slot\n"
-  if $attempted > 0 && $succeeded == 0 && @failed;
+if ( @failed || @skipped ) {
+  warn "Incomplete limb set for $slot\n";
+  exit 1;
+}
 exit 0;

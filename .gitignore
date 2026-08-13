@@ -1,82 +1,16 @@
 .DS_Store
-!Build/
-.last_cover_stats
-/META.yml
-/META.json
-/MYMETA.*
 *.o
-*.tdy
-*.bs
-
-# Devel::Cover
-cover_db/
-
-# Devel::NYTProf
-nytprof.out
-
-# Dist::Zilla
-/.build/
-
-# Module::Build
-_build/
-Build
-Build.bat
-
-# Module::Install
-inc/
-
-# ExtUtils::MakeMaker
-/blib/
-/_eumm/
-/*.gz
-/Makefile
-/Makefile.old
-/MANIFEST.bak
-/pm_to_blib
-/*.zip
-
-# Carton/Carmel
-/local/
-/.carmel/
-# cpanfile.snapshot should generally be ignored for library code, otherwise included
-# cpanfile.snapshot
-
-# Vscode
-.history
-
-# Python
-__pycache__/
-*.py[cod]
-*.py,cover
-.python-version
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.pyre/
-.hypothesis/
-.tox/
-.nox/
-.coverage
-.coverage.*
-htmlcov/
-.venv/
-venv/
-env/
-ENV/
-pip-wheel-metadata/
-.eggs/
-*.egg-info/
-
-# Shell and editor temp files
 *.log
 *.err
-*.stackdump
 *.swp
 *.swo
 *~
 *.orig
 *.rej
-
-# Misc
-*.ERR
-plots/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.venv/
+cover_db/
+nytprof.out

@@ -1,292 +1,131 @@
 use v5.38;
-use FindBin    qw($Bin);
+use FindBin qw($Bin);
+use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use Test::More;
 
-sub perl_quote ($value) {
+sub quote ($value) {
   $value =~ s/\\/\\\\/g;
   $value =~ s/'/\\'/g;
   return "'$value'";
 }
 
+sub write_config ( $path, %values ) {
+  open my $fh, '>', $path or die "Cannot write $path: $!";
+  print {$fh} "use v5.38;\nreturn {\n";
+  print {$fh} "  wl => [", join( ',', @{ $values{wl} // [ 94, 171, 4500 ] } ), "],\n";
+  print {$fh} "  cadence_h => 3, sumserver => 'test', sge_root => '/SGE', tz => 'UTC',\n";
+  print {$fh} "  drms_root_dir => '/drms', drms_params_install_dir => '/drms/include/base',\n";
+  print {$fh} "  drms_scrs_install_dir => '/drms/scripts', drms_src_install_dir => '/drms/src',\n";
+  print {$fh} "  drms_filter => '[?MISSVALS<99?]', lev1_series => 'aia.lev1_nrt2',\n";
+  for my $key (qw(fits_root check_gaps_dir logs_dir pointing_dir limbfit_exe mail_to)) {
+    print {$fh} "  $key => ", quote( $values{$key} ), ",\n" if defined $values{$key};
+  }
+  print {$fh} "};\n";
+  close $fh or die "Cannot close $path: $!";
+}
+
 my $repo = "$Bin/..";
 my $tmp  = tempdir( CLEANUP => 1 );
 my $cfg  = "$tmp/config.pl";
-
-open my $cfg_fh, '>', $cfg or die "Cannot write $cfg: $!";
-print {$cfg_fh} "use v5.38;\nreturn {\n";
-print {$cfg_fh} "  wl => [94, 171, 4500],\n";
-print {$cfg_fh} "  sumserver => 'test',\n";
-print {$cfg_fh} "  sge_root => '/SGE',\n";
-print {$cfg_fh} "  tz => 'UTC',\n";
-print {$cfg_fh} "  drms_root_dir => '/drms',\n";
-print {$cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
-print {$cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
-print {$cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
-print {$cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$cfg_fh} "  fits_root => ",      perl_quote("$tmp/fits"),     ",\n";
-print {$cfg_fh} "  test_fits_root => ", perl_quote("$tmp/testfits"), ",\n";
-print {$cfg_fh} "  logs_dir => ",       perl_quote("$tmp/logs"),     ",\n";
-print {$cfg_fh} "  repo_root => '/repo',\n";
-print {$cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
-print {$cfg_fh} "  mpt_series => 'aia.master_pointing3h',\n";
-print {$cfg_fh} "  limbfit_exe => '/bin/limbfit',\n";
-print {$cfg_fh} "};\n";
-close $cfg_fh or die "Cannot close $cfg: $!";
-
+write_config(
+  $cfg,
+  fits_root     => "$tmp/fits",
+  check_gaps_dir => "$tmp/gaps",
+  logs_dir      => "$tmp/logs",
+  pointing_dir  => "$tmp/stage",
+  limbfit_exe   => '/bin/limbfit',
+);
 local $ENV{AIA_LIMBFIT_CONFIG} = $cfg;
 
-my $out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 2>&1);
-is( $? >> 8, 0, 'run_limbfit_ymdh.pl dry-run exits successfully' ) or diag $out;
-like(
-  $out,
-qr{/bin/limbfit dsinp='aia[.]lev1_nrt2\[2026[.]05[.]01_03/3h\]\[\?WAVELNTH=94\?\]\[\?MISSVALS<99\?\]' sum=5},
-  'ymdh dry-run prints 94A command'
+my $output = qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 2>&1);
+is( $? >> 8, 0, 'all-wavelength dry run succeeds' ) or diag $output;
+like( $output, qr{aia[.]lev1_nrt2\[2026[.]05[.]01_03/3h\].*WAVELNTH=94}, 'query is fixed at 3h' );
+like( $output, qr{20260501_03_4500[.]limb}, 'all configured wavelengths are printed' );
+unlike( $output, qr{plot_limb[.]py}, 'production run does not plot' );
+
+$output = qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
+is( $? >> 8, 0, 'single-wavelength dry run succeeds' ) or diag $output;
+like( $output, qr{\Q$tmp/gaps/limb/2026/05/01/20260501_03_0171.limb\E},
+  'diagnostic run defaults to the backfill workspace' );
+like( $output, qr{plot_limb[.]py}, 'diagnostic run plots by default' );
+
+$output = qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -dur=6h -year=2026 -month=5 -day=1 -hour=3 2>&1);
+isnt( $? >> 8, 0, 'duration override was removed' );
+
+$output = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 2>&1);
+is( $? >> 8, 0, 'cron dry run succeeds' ) or diag $output;
+like( $output, qr{run_limbfit_ymdh[.]pl.*-hour=3}, 'cron prints limb-fit step' );
+like( $output, qr{lf2mpr_nrt[.]pdl.*-outdir=\Q$tmp/stage/20260501_03\E}, 'cron prints reducer step' );
+like( $output, qr{update3h_mpt[.]pl.*-delete}, 'cron prints publish step' );
+
+$output = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=4 2>&1);
+isnt( $? >> 8, 0, 'off-grid cron slot is rejected' );
+like( $output, qr{Hour must be on the three-hour grid}, 'off-grid error is explicit' );
+
+my $mixed = "$tmp/mixed_limbfit.pl";
+open my $mixed_fh, '>', $mixed or die "Cannot write $mixed: $!";
+print {$mixed_fh} <<'FAKE';
+#!/usr/bin/env perl
+use v5.38;
+my $args = join q{ }, @ARGV;
+exit 3 if $args =~ /WAVELNTH=94/;
+print "1 2 3 4 time 3\n";
+FAKE
+close $mixed_fh or die "Cannot close $mixed: $!";
+chmod 0755, $mixed or die "Cannot chmod $mixed: $!";
+my $mixed_cfg = "$tmp/mixed.pl";
+write_config(
+  $mixed_cfg,
+  wl             => [ 94, 171 ],
+  fits_root      => "$tmp/mixed_fits",
+  check_gaps_dir => "$tmp/gaps",
+  limbfit_exe    => $mixed,
 );
-like( $out, qr{20260501_03_4500[.]limb}, 'ymdh dry-run includes 4500A output path' );
-unlike( $out, qr{plot_limb[.]py}, 'all-wavelength dry-run does not plot by default' );
-
-$out =
-qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
-is( $? >> 8, 0, 'single-wavelength dry-run exits successfully' ) or diag $out;
-like(
-  $out,
-qr{/bin/limbfit dsinp='aia[.]lev1\[2026[.]05[.]01_03/3h\]\[\?WAVELNTH=171\?\]\[\?MISSVALS<99\?\]' sum=5},
-  'test dry-run prints requested wavelength command'
-);
-like( $out, qr{20260501_03_0171[.]limb}, 'test dry-run includes padded output filename' );
-unlike( $out, qr{plot_limb[.]py},
-  'single-wavelength dry-run suppresses plot command with -no-plots' );
-
-$out =
-  qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 -wavel=171 2>&1);
-like(
-  $out,
-  qr{\Q$tmp/testfits/2026/05/01/20260501_03_0171.limb\E},
-  'single-wavelength run defaults to test output root'
-);
-like( $out, qr{plot_limb[.]py}, 'single-wavelength run plots by default' );
-
-$out =
-qx("$^X" "$repo/run_limbfit_ymdh.pl" -dry-run -no-plots -year=2026 -month=5 -day=1 -wavel=171 2>&1);
-isnt( $? >> 8, 0, 'single-wavelength run rejects a missing hour' );
-like( $out, qr{Missing required option: --hour}, 'missing-hour error is explicit' );
-unlike( $out, qr{uninitialized value}, 'missing-hour error avoids Perl warnings' );
-
-$out = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=3 2>&1);
-is( $? >> 8, 0, 'cron_submit_slot.pl dry-run exits successfully' ) or diag $out;
-is(
-  $out,
-  "/repo/pipeline_slot_nrt.csh 2026 5 1 3 > $tmp/logs/20260501_03.log 2>&1\n",
-  'cron dry-run prints pipeline command'
-);
-
-$out = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=4 2>&1);
-is( $? >> 8, 0,   'cron_submit_slot.pl skipped dry-run exits successfully' ) or diag $out;
-is( $out,    q{}, 'cron dry-run prints nothing for off-cadence hour' );
-
-# Pipeline failure mails the log tail to mail_to
-my $fake_repo = "$tmp/fake_repo";
-my $fake_bin  = "$tmp/fake_bin";
-my $mail_log  = "$tmp/mailx.log";
-mkdir $fake_repo or die "Cannot mkdir $fake_repo: $!";
-mkdir $fake_bin  or die "Cannot mkdir $fake_bin: $!";
-
-open my $pipe_fh, '>', "$fake_repo/pipeline_slot_nrt.csh"
-  or die "Cannot write fake pipeline: $!";
-print {$pipe_fh} "#!/bin/sh\necho limbfit-boom-detail\nexit 7\n";
-close $pipe_fh or die "Cannot close fake pipeline: $!";
-chmod 0755, "$fake_repo/pipeline_slot_nrt.csh" or die "Cannot chmod fake pipeline: $!";
-
-open my $mailx_fh, '>', "$fake_bin/mailx" or die "Cannot write fake mailx: $!";
-print {$mailx_fh} "#!/usr/bin/env perl\nuse v5.38;\n";
-print {$mailx_fh} "open my \$fh, '>>', ", perl_quote($mail_log), " or die \$!;\n";
-print {$mailx_fh} "print {\$fh} join(' ', \@ARGV), \"\\n\", do { local \$/; <STDIN> };\n";
-print {$mailx_fh} "close \$fh or die \$!;\n";
-close $mailx_fh or die "Cannot close fake mailx: $!";
-chmod 0755, "$fake_bin/mailx" or die "Cannot chmod fake mailx: $!";
-
-my $mail_cfg = "$tmp/mail_config.pl";
-open my $mail_cfg_fh, '>', $mail_cfg or die "Cannot write $mail_cfg: $!";
-print {$mail_cfg_fh} "use v5.38;\nreturn {\n";
-print {$mail_cfg_fh} "  sumserver => 'test',\n";
-print {$mail_cfg_fh} "  sge_root => '/SGE',\n";
-print {$mail_cfg_fh} "  tz => 'UTC',\n";
-print {$mail_cfg_fh} "  logs_dir => ",  perl_quote("$tmp/logs"),  ",\n";
-print {$mail_cfg_fh} "  repo_root => ", perl_quote($fake_repo),   ",\n";
-print {$mail_cfg_fh} "  mail_to => 'ops1,ops2',\n";
-print {$mail_cfg_fh} "};\n";
-close $mail_cfg_fh or die "Cannot close $mail_cfg: $!";
-
-{
-  local $ENV{AIA_LIMBFIT_CONFIG} = $mail_cfg;
-  local $ENV{PATH}               = "$fake_bin:$ENV{PATH}";
-  $out = qx("$^X" "$repo/cron_submit_slot.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
-}
-isnt( $? >> 8, 0, 'cron run still fails after mailing' );
-like( $out, qr/pipeline failed for 20260501_03/, 'cron failure is reported' );
-ok( -s $mail_log, 'pipeline failure sends a notification email' );
-my $mail = do {
-  open my $fh, '<', $mail_log or die "Cannot read $mail_log: $!";
-  local $/;
-  <$fh>;
-};
-like( $mail, qr/-s 3h MPT pipeline failed 20260501_03 ops1 ops2/, 'email has subject and recipients' );
-like( $mail, qr/limbfit-boom-detail/, 'email body includes the log tail' );
-
-my $fail_limbfit = "$tmp/fail_limbfit.pl";
-open my $fail_fh, '>', $fail_limbfit or die "Cannot write $fail_limbfit: $!";
-print {$fail_fh} "#!/usr/bin/env perl\n";
-print {$fail_fh} "use v5.38;\nexit 3;\n";
-close $fail_fh or die "Cannot close $fail_limbfit: $!";
-chmod 0755, $fail_limbfit or die "Cannot chmod $fail_limbfit: $!";
-
-my $mixed_limbfit = "$tmp/mixed_limbfit.pl";
-open my $mixed_fh, '>', $mixed_limbfit or die "Cannot write $mixed_limbfit: $!";
-print {$mixed_fh} "#!/usr/bin/env perl\n";
-print {$mixed_fh} "use v5.38;\n";
-print {$mixed_fh} "my \$args = join q{ }, \@ARGV;\n";
-print {$mixed_fh} "exit 3 if \$args =~ /WAVELNTH=94/;\n";
-print {$mixed_fh} "print qq{ok\\n};\n";
-print {$mixed_fh} "exit 0;\n";
-close $mixed_fh or die "Cannot close $mixed_limbfit: $!";
-chmod 0755, $mixed_limbfit or die "Cannot chmod $mixed_limbfit: $!";
-
-my $empty_limbfit = "$tmp/empty_limbfit.pl";
-open my $empty_fh, '>', $empty_limbfit or die "Cannot write $empty_limbfit: $!";
-print {$empty_fh} "#!/usr/bin/env perl\n";
-print {$empty_fh} "use v5.38;\nexit 0;\n";
-close $empty_fh or die "Cannot close $empty_limbfit: $!";
-chmod 0755, $empty_limbfit or die "Cannot chmod $empty_limbfit: $!";
-
-my $quality_show_info = "$tmp/quality_show_info.pl";
-open my $quality_fh, '>', $quality_show_info or die "Cannot write $quality_show_info: $!";
-print {$quality_fh} "#!/usr/bin/env perl\nuse v5.38;\n";
-print {$quality_fh} "my \$query = \$ARGV[-1] // q{};\n";
-print {$quality_fh}
-"my \$skip = \$ENV{FAKE_QUALITY_SKIP_WAVELENGTH};\nprint defined \$skip && \$query =~ /WAVELNTH=\$skip/ && \$query =~ /QUALITY/ ? qq{0\\n} : qq{5\\n};\n";
-close $quality_fh or die "Cannot close $quality_show_info: $!";
-chmod 0755, $quality_show_info or die "Cannot chmod $quality_show_info: $!";
-
-my $mixed_cfg = "$tmp/mixed_config.pl";
-open my $mixed_cfg_fh, '>', $mixed_cfg or die "Cannot write $mixed_cfg: $!";
-print {$mixed_cfg_fh} "use v5.38;\nreturn {\n";
-print {$mixed_cfg_fh} "  wl => [94, 171],\n";
-print {$mixed_cfg_fh} "  sumserver => 'test',\n";
-print {$mixed_cfg_fh} "  sge_root => '/SGE',\n";
-print {$mixed_cfg_fh} "  drms_root_dir => '/drms',\n";
-print {$mixed_cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
-print {$mixed_cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
-print {$mixed_cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
-print {$mixed_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$mixed_cfg_fh} "  drms_quality_filter => '[?(QUALITY & 397312)=0?]',\n";
-print {$mixed_cfg_fh} "  show_info => ", perl_quote($quality_show_info), ",\n";
-print {$mixed_cfg_fh} "  fits_root => ", perl_quote("$tmp/mixedfits"),   ",\n";
-print {$mixed_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
-print {$mixed_cfg_fh} "  limbfit_exe => ", perl_quote($mixed_limbfit), ",\n";
-print {$mixed_cfg_fh} "};\n";
-close $mixed_cfg_fh or die "Cannot close $mixed_cfg: $!";
-
 local $ENV{AIA_LIMBFIT_CONFIG} = $mixed_cfg;
-$out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
-is( $? >> 8, 0, 'run_limbfit_ymdh.pl succeeds when at least one wavelength succeeds' ) or diag $out;
-like( $out, qr{LIMBFIT START slot=2026-05-01T03:00Z wavelength=94A}, 'ymdh labels each run' );
-ok( index( $out, 'LIMBFIT FAIL slot=2026-05-01T03:00Z wavelength=94A status=exit 3' ) >= 0,
-  'ymdh labels wavelength failures' );
-like(
-  $out,
-  qr{LIMBFIT OK slot=2026-05-01T03:00Z wavelength=171A},
-  'ymdh labels wavelength successes'
-);
-ok( index( $out, 'LIMBFIT SUMMARY slot=2026-05-01T03:00Z succeeded=1 attempted=2 failed=94A' ) >= 0,
-  'ymdh summarizes the slot' );
-ok(
-  !-e "$tmp/mixedfits/2026/05/01/20260501_03_0094.limb",
-  'ymdh removes failed partial-run output file'
-);
-ok(
-  -s "$tmp/mixedfits/2026/05/01/20260501_03_0171.limb",
-  'ymdh keeps successful partial-run output file'
-);
+$output = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
+isnt( $? >> 8, 0, 'one failed wavelength fails the slot' );
+like( $output, qr{failed=94A}, 'failed wavelength is summarized' );
+ok( !-e "$tmp/mixed_fits/2026/05/01/20260501_03_0094.limb", 'failed output is removed' );
+ok( -s "$tmp/mixed_fits/2026/05/01/20260501_03_0171.limb", 'successful sibling remains diagnosable' );
 
-local $ENV{FAKE_QUALITY_SKIP_WAVELENGTH} = 94;
-$out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
-is( $? >> 8, 0, 'run_limbfit_ymdh.pl skips quality-rejected records' ) or diag $out;
-like(
-  $out,
-qr{LIMBFIT SKIP slot=2026-05-01T03:00Z wavelength=94A reason=all 5 source records rejected by data-quality filter},
-  'ymdh reports the quality-rejected wavelength'
+my $failed = "$tmp/failed_limbfit.pl";
+open my $failed_fh, '>', $failed or die "Cannot write $failed: $!";
+print {$failed_fh} "#!/usr/bin/env perl\nuse v5.38;\nwarn qq{limbfit-boom-detail\\n};\nexit 7;\n";
+close $failed_fh or die "Cannot close $failed: $!";
+chmod 0755, $failed or die "Cannot chmod $failed: $!";
+my $fake_bin = "$tmp/bin";
+make_path($fake_bin);
+my $mail_log = "$tmp/mail.log";
+open my $mail_fh, '>', "$fake_bin/mailx" or die "Cannot write mailx: $!";
+print {$mail_fh} "#!/usr/bin/env perl\nuse v5.38;\n";
+print {$mail_fh} 'open my $fh, q{>>}, ', quote($mail_log), ' or die $!;', "\n";
+print {$mail_fh} 'print {$fh} join(q{ }, @ARGV), qq{\n}, do { local $/; <STDIN> };', "\n";
+print {$mail_fh} 'close $fh;', "\n";
+close $mail_fh or die "Cannot close mailx: $!";
+chmod 0755, "$fake_bin/mailx" or die "Cannot chmod mailx: $!";
+my $fail_cfg = "$tmp/fail.pl";
+write_config(
+  $fail_cfg,
+  wl             => [94],
+  fits_root      => "$tmp/fail_fits",
+  check_gaps_dir => "$tmp/gaps",
+  logs_dir       => "$tmp/logs",
+  pointing_dir   => "$tmp/stage",
+  limbfit_exe    => $failed,
+  mail_to        => 'ops1,ops2',
 );
-unlike( $out, qr{LIMBFIT START .* wavelength=94A}, 'ymdh does not fit the rejected wavelength' );
-like(
-  $out,
-  qr{LIMBFIT SUMMARY .* succeeded=1 attempted=1 failed=none skipped=94A},
-  'ymdh summarizes skipped wavelengths separately'
-);
-
-my $empty_cfg = "$tmp/empty_config.pl";
-open my $empty_cfg_fh, '>', $empty_cfg or die "Cannot write $empty_cfg: $!";
-print {$empty_cfg_fh} "use v5.38;\nreturn {\n";
-print {$empty_cfg_fh} "  wl => [94],\n";
-print {$empty_cfg_fh} "  sumserver => 'test',\n";
-print {$empty_cfg_fh} "  sge_root => '/SGE',\n";
-print {$empty_cfg_fh} "  drms_root_dir => '/drms',\n";
-print {$empty_cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
-print {$empty_cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
-print {$empty_cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
-print {$empty_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$empty_cfg_fh} "  fits_root => ", perl_quote("$tmp/emptyfits"), ",\n";
-print {$empty_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
-print {$empty_cfg_fh} "  limbfit_exe => ", perl_quote($empty_limbfit), ",\n";
-print {$empty_cfg_fh} "};\n";
-close $empty_cfg_fh or die "Cannot close $empty_cfg: $!";
-
-local $ENV{AIA_LIMBFIT_CONFIG} = $empty_cfg;
-$out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
-cmp_ok( $? >> 8, '!=', 0, 'run_limbfit_ymdh.pl fails when every wavelength writes empty output' )
-  or diag $out;
-like( $out, qr{empty output file}, 'ymdh empty output failure is reported' );
-ok( !-e "$tmp/emptyfits/2026/05/01/20260501_03_0094.limb", 'ymdh removes empty output file' );
-ok( !-d "$tmp/emptyfits/2026/05/01", 'ymdh removes the empty dated output directory' );
-
-my $fail_cfg = "$tmp/fail_config.pl";
-open my $fail_cfg_fh, '>', $fail_cfg or die "Cannot write $fail_cfg: $!";
-print {$fail_cfg_fh} "use v5.38;\nreturn {\n";
-print {$fail_cfg_fh} "  wl => [94],\n";
-print {$fail_cfg_fh} "  sumserver => 'test',\n";
-print {$fail_cfg_fh} "  sge_root => '/SGE',\n";
-print {$fail_cfg_fh} "  drms_root_dir => '/drms',\n";
-print {$fail_cfg_fh} "  drms_params_install_dir => '/drms/include/base',\n";
-print {$fail_cfg_fh} "  drms_scrs_install_dir => '/drms/scripts',\n";
-print {$fail_cfg_fh} "  drms_src_install_dir => '/drms/src',\n";
-print {$fail_cfg_fh} "  drms_filter => '[?MISSVALS<99?]',\n";
-print {$fail_cfg_fh} "  fits_root => ",      perl_quote("$tmp/failfits"), ",\n";
-print {$fail_cfg_fh} "  test_fits_root => ", perl_quote("$tmp/failtest"), ",\n";
-print {$fail_cfg_fh} "  lev1_series => 'aia.lev1_nrt2',\n";
-print {$fail_cfg_fh} "  limbfit_exe => ", perl_quote($fail_limbfit), ",\n";
-print {$fail_cfg_fh} "};\n";
-close $fail_cfg_fh or die "Cannot close $fail_cfg: $!";
-
-local $ENV{AIA_LIMBFIT_CONFIG} = $fail_cfg;
-$out = qx("$^X" "$repo/run_limbfit_ymdh.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
-cmp_ok( $? >> 8, '!=', 0, 'run_limbfit_ymdh.pl fails when every wavelength fails' ) or diag $out;
-like(
-  $out,
-  qr{LIMBFIT FAIL .* wavelength=94A},
-  'ymdh all-failed run reports the wavelength failure'
-);
-like( $out, qr{failed for every wavelength}, 'ymdh all-failed run reports slot failure' );
-ok(
-  !-e "$tmp/failfits/2026/05/01/20260501_03_0094.limb",
-  'ymdh removes failed all-run output file'
-);
-
-$out =
-  qx("$^X" "$repo/run_limbfit_ymdh.pl" -no-plots -year=2026 -month=5 -day=1 -hour=3 -wavel=94 2>&1);
-isnt( $? >> 8, 0, 'single-wavelength run fails after a limbfit failure' );
-ok(
-  !-e "$tmp/failtest/2026/05/01/20260501_03_0094.limb",
-  'single-wavelength runner removes failed output file'
-);
+{
+  local $ENV{AIA_LIMBFIT_CONFIG} = $fail_cfg;
+  local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
+  $output = qx("$^X" "$repo/cron_submit_slot.pl" -year=2026 -month=5 -day=1 -hour=3 2>&1);
+}
+isnt( $? >> 8, 0, 'cron propagates pipeline failure' );
+like( $output, qr{failed .* at limbfit: exit 1}, 'cron names the failed step and exit code' );
+ok( -s $mail_log, 'cron sends one failure email' );
+open my $read_mail, '<', $mail_log or die "Cannot read $mail_log: $!";
+my $mail = do { local $/; <$read_mail> };
+close $read_mail;
+like( $mail, qr{limbfit-boom-detail}, 'email includes the useful log tail' );
 
 done_testing;

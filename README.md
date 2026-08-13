@@ -1,434 +1,159 @@
-# AIA limb fitting at the JSOC
+# AIA limb fitting at JSOC
 
-This repository runs the [Atmospheric Imaging Assembly (AIA)](https://aia.lmsal.com/)
-limb-fit pipeline at the
-[Joint Science Operations Center (JSOC)](http://jsoc.stanford.edu/). It produces
-3-hour master-pointing records in `aia.master_pointing3h`.
+This repository produces three-hour `aia.master_pointing3h` records from AIA
+Level-1 images.
 
-Originally written by [John Serafin](mailto:jps@lmsal.com).
+## Production
 
-## Production pipeline
+`cron_submit_slot.pl` is the only production entry point. For one slot it runs:
 
 ```text
-cron_submit_slot.pl
-└─ pipeline_slot_nrt.csh
-   ├─ run_limbfit_ymdh.pl  → .limb files
-   ├─ lf2mpr_nrt.pdl       → masterpoint_*.txt
-   └─ update3h_mpt.pl      → aia.master_pointing3h
+run_limbfit_ymdh.pl -> lf2mpr_nrt.pdl -> update3h_mpt.pl
 ```
 
-Deployment paths, DRMS series, wavelengths, and reducer thresholds live in
-`config.pl`; the C-shell environment lives in `config.csh`. Edit those two files
-when moving the pipeline.
+A slot succeeds only when every configured wavelength produces a non-empty limb
+file and a finite reduced center. A missing input, invalid fit, split cluster, or
+non-finite center stops the slot before publication. The cron driver writes one
+log and sends one failure email containing its tail.
 
-> JSOC interactive sessions use `csh` by default, not Bash. The examples below
-> use C-shell assignments such as “set work = \`mktemp -d\`”; use `work=$(mktemp -d)`
-> only when you have explicitly started Bash.
+Runtime values live in `config.pl`. `config.csh` only bootstraps an interactive
+JSOC C-shell.
 
-The production cron entry on `solar4` runs hourly and acts every three hours:
+The fitter targets data 22 hours behind the invocation time. Run it every three
+hours on the UTC hours that map to the 00/03/06/... data grid:
 
 ```cron
-1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+CRON_TZ=UTC
+1 1-22/3 * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 ```
 
-The default slot begins 22 hours before invocation. Process a specific slot with
-either entry point:
+Preview or run one slot:
 
 ```console
-./cron_submit_slot.pl -year=2026 -month=3 -day=28 -hour=0
-./pipeline_slot_nrt.csh 2026 3 28 0
+./cron_submit_slot.pl -dry-run -year=2026 -month=3 -day=28 -hour=0
+./cron_submit_slot.pl          -year=2026 -month=3 -day=28 -hour=0
 ```
 
-Run one wavelength for diagnosis without invoking the full pipeline:
+For one diagnostic wavelength, output defaults to the backfill workspace and a
+PNG is generated:
 
 ```console
 ./run_limbfit_ymdh.pl -year=2026 -month=3 -day=28 -hour=0 -wavel=171
 ```
 
-Single-wavelength runs default to `aia.lev1`, `test_fits_root`, and a diagnostic
-plot. All-wavelength runs default to `lev1_series`, `fits_root`, and no plots.
-Use `-series`, `-outroot`, and `-plots`/`-no-plots` to override those defaults.
+## Backfill report
 
-## Invalid Level-1 geometry
-
-`R_SUN`, `CRPIX1`, and `CRPIX2` must all be finite and positive before the
-native fitter can locate a limb. Scan a bounded Level-1 record set before a
-repair or after a fitter failure:
+`check_pointing_gaps.pl` is read-only. It reports missing pointing slots and NaN
+wavelengths, examines any existing limb file with the production reducer, and
+prints isolated commands for each affected slot. It does not create files or
+change DRMS.
 
 ```console
-source config.csh
-
-# One wavelength in a 3-hour pointing window
-./scan_lev1_geometry.pl \
-  -ds='aia.lev1[2026.03.26_18/3h][?WAVELNTH=94?]'
-
-# All wavelengths in the same window
-./scan_lev1_geometry.pl -ds='aia.lev1[2026.03.26_18/3h]'
-```
-
-The scanner prints the FSN, observation time, wavelength, values, and invalid
-fields; it exits 1 if it finds any. It queries all records in the supplied
-record set and checks them locally: do not replace this with a DRMS `> 0`
-predicate, because PostgreSQL's `NaN` compares greater than ordinary numbers.
-
-### Hardening the JSOC executable
-
-An unpatched `limbfit_aia` can segfault when a Level-1 record has invalid
-geometry or no limb-annulus candidates. The native patch in
-[`patches/limbfit_aia_invalid_geometry.patch`](patches/limbfit_aia_invalid_geometry.patch)
-makes `limbcompute()` reject those cases and makes the application log and skip
-the failed five-image sum. It does not repair missing pointing metadata or
-create a limb fit from invalid input.
-
-Apply the patch in a JSOC source checkout, then rebuild and install the
-configured executable. These are C-shell commands for `solar4`:
-
-```console
-cd ~/Git/JSOC-orig
-git switch -c fix/limbfit-invalid-geometry
-git apply ~/Git/aia_limbfit_and_pointing/patches/limbfit_aia_invalid_geometry.patch
-
-source build/oneapi.csh
-make limbfit_aia
-make install
-
-# config.pl uses this executable; the diagnostic string confirms the install.
-strings bin/linux_avx2/limbfit_aia | rg 'invalid limb geometry'
-```
-
-If the branch already exists, use `git switch fix/limbfit-invalid-geometry`
-instead of creating it. Keep the source change on its own branch for upstream
-review; `config.pl` points this pipeline at
-`/homef/nabil/JSOC-orig/bin/linux_avx2/limbfit_aia`.
-
-## Historical gap workflow
-
-Gap reports are read-only: they query DRMS and write a wavelength report to
-`$check_gaps_dir/patch.txt`, but never run limb fits or modify production data.
-
-```console
-# Full historical report: 2010-11-01 through seven days ago
+# Mission report through seven days ago
 ./check_pointing_gaps.pl
 
-# One day or an explicit range
+# One day or range
 ./check_pointing_gaps.pl -year=2024 -month=3 -day=1
 ./check_pointing_gaps.pl \
   -year=2024 -month=3 -day=1 \
   -end_year=2024 -end_month=6 -end_day=1
 ```
 
-Repairs require an explicit start date. Review the report, preview the commands,
-then generate only the approved date or range:
+Historical slots automatically use `aia.lev1`; override the image source only
+when needed:
 
 ```console
-# Preview: no limb files are changed
-./check_pointing_gaps.pl -repair -dry-run \
-  -year=2024 -month=3 -day=1
-
-# Generate limb files, diagnostic plots, and staged masterpoints
-./check_pointing_gaps.pl -repair \
-  -year=2024 -month=3 -day=1
+./check_pointing_gaps.pl -year=2024 -month=3 -day=1 -image-series=aia.lev1
 ```
 
-For old data, add `-image_series=aia.lev1`. Repair mode may atomically replace a
-regenerated wavelength under `fits_root`, but it does not write DRMS. Inspect the
-limb files, plots, and `$check_gaps_dir/stage/masterpoint_*.txt`. Copy only approved
-masterpoints to a clean directory before invoking `update3h_mpt.pl`, as shown below.
+The report prints a per-slot sequence equivalent to:
 
-`update3h_mpt.pl` maps the centre time encoded in a masterpoint filename to a
-3-hour-cadence row. A newly published row provisionally covers 6 hours; once the
-adjacent next row is present, the earlier row is shortened to its normal 3-hour
-span. Newer DRMS records are preserved, and `VERSION` is incremented when an
-existing record is replaced.
+```console
+./run_limbfit_ymdh.pl ... -outroot=/surge40/nabil/LimbFit_c/gaps/SLOT/limb
+./lf2mpr_nrt.pdl ... \
+  -inpdir=/surge40/nabil/LimbFit_c/gaps/SLOT/limb \
+  -outdir=/surge40/nabil/LimbFit_c/gaps/SLOT/stage
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/SLOT/stage -dry-run
+```
 
-### Gap examples
+Inspect the limb files, diagnostic plots, reducer output, and publication dry
+run. Publish only by rerunning the final command without `-dry-run`.
 
-This report means the 03:00–06:00 UTC slot is absent. Run the preview/repair
-sequence above with `-year=2026 -month=5 -day=1`, then inspect the generated
-`20260501_03_*.{limb,png}` files and staged masterpoint.
+If both bracketing pointing records exist, the report also prints an explicit
+`-interpolate-previous=... -interpolate-next=...` fallback. Use it instead of
+the normal reducer only after deciding the regenerated limb fit is physically
+bad. It linearly interpolates every wavelength at the target time and refuses
+missing or non-finite endpoints; it never extrapolates.
+
+Newly published records provisionally span six hours. When the adjacent row is
+published, `update3h_mpt.pl` shortens the previous record to three hours. The gap
+checker therefore accepts a six-hour difference between consecutive `T_START`s
+when the previous `T_STOP` reaches the later start.
+
+## Split clusters
+
+The reducer looks for one temporal break leaving two sufficiently populated
+segments whose centers are widely separated relative to their internal scatter.
+It reports the cut directly:
 
 ```text
-TEMPORAL GAP  2026-05-01T00:00:00Z  ->  2026-05-01T06:00:00Z  (6.00 h)
+Split-cluster detected (94A): split after row 88, segments 88/92, separation/scatter 29.9
 ```
 
-This report means only 171 Å failed in that slot. The same repair sequence
-regenerates `20260501_03_0171.{limb,png}`, installs the reviewed `.limb`, and
-stages a complete masterpoint.
-
-```text
-MISSING WAVELENGTHS  2026-05-01T03:00:00Z:  171
-```
+The backfill report prints both candidate commands. Plot the regenerated file,
+choose the physically valid segment, run exactly one cut, then reduce again:
 
 ```console
-rg 'A_171_[XY]0' \
-  /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_20260501_0430_3hcadence.txt
+./plot_limb.py /path/to/20260326_18_0094.limb
+
+# Keep the first segment
+head -n 88 /path/to/20260326_18_0094.limb > /tmp/94.keep
+
+# Or keep the second segment
+tail -n +89 /path/to/20260326_18_0094.limb > /tmp/94.keep
 ```
 
-For either case, copy only the reviewed masterpoint before ingestion:
+Replace only the copy in the isolated backfill workspace. Production limb files
+are not edited by the report. The reducer will not emit a partial or NaN
+masterpoint.
+
+Two calibration values remain in `config.pl` because real sensor data varies:
+minimum useful segment size and required center-separation/scatter ratio.
+
+## Invalid Level-1 geometry
+
+After a native fitter failure, inspect the exact bounded input set:
 
 ```console
-set approved = `mktemp -d`
-cp /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_20260501_0430_3hcadence.txt \
-  "$approved/"
-./update3h_mpt.pl -srcdir="$approved" -dry-run
-./update3h_mpt.pl -srcdir="$approved"
+source config.csh
+./scan_lev1_geometry.pl \
+  -ds='aia.lev1[2026.03.26_18/3h][?WAVELNTH=94?]'
 ```
 
-### Mission-wide audit and batch backfill
-
-The no-argument report scans the pointing series from 2010-11-01 through seven
-days ago. Save its temporal and wavelength-gap output for review:
-
-```console
-./check_pointing_gaps.pl | tee /tmp/aia_pointing_gaps.txt
-```
-
-This does not run limb fitting or change DRMS. Once the report is approved,
-generate pointing files in bounded batches rather than repairing the whole
-mission at once. For example, preview and process November 2010 with `aia.lev1`:
-
-```console
-./check_pointing_gaps.pl -repair -dry-run -image_series=aia.lev1 \
-  -year=2010 -month=11 -day=1 \
-  -end_year=2010 -end_month=11 -end_day=30
-
-./check_pointing_gaps.pl -repair -image_series=aia.lev1 \
-  -year=2010 -month=11 -day=1 \
-  -end_year=2010 -end_month=11 -end_day=30
-```
-
-The generated pointing files are under `$check_gaps_dir/stage/`. Stop there if
-the goal is only to build missing masterpoints. To fill DRMS, isolate and inspect
-the approved batch before ingestion:
-
-```console
-set approved = `mktemp -d`
-cp /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_201011*.txt "$approved/"
-rg '^KWD ' "$approved"
-./update3h_mpt.pl -srcdir="$approved" -dry-run
-./update3h_mpt.pl -srcdir="$approved"
-```
-
-Repeat for the next month or another reviewed range. `update3h_mpt.pl` processes
-every masterpoint in its source directory, so never use a mixed staging directory
-unless every file in it has been approved.
-
-To regenerate plots for existing gap-work files without repairing anything:
-
-```console
-./check_pointing_gaps.pl -plots -year=2024 -month=3 -day=1
-```
-
-For filesystem-only inventory, use `lf_inv.pl`:
-
-```console
-./lf_inv.pl
-./lf_inv.pl -year=2024 -month=3 -fits_root=/other/path
-```
-
-### Split clusters during backfill
-
-A split cluster (see [Split clusters](#split-clusters)) does not abort a batch
-repair: the reducer writes `NaN` for the failed wavelength and the masterpoint
-is staged anyway. Screen the stage directory before approving a batch, and
-confirm each hit against its diagnostic plot or limb file under
-`$check_gaps_dir/limb`:
-
-```console
-rg -l 'NaN' /surge40/nabil/LimbFit_c/gaps/stage/masterpoint_201011*.txt
-./plot_limb.py /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_0094.limb
-```
-
-To repair a flagged slot, re-reduce it from a temporary input tree containing
-every wavelength's limb file, with the failed one truncated to its physically
-valid segment. `-require-all` guarantees the result is a complete masterpoint
-rather than a partial one:
-
-```console
-set fix = `mktemp -d`
-mkdir -p "$fix/in/2010/11/05" "$fix/out"
-cp /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_*.limb \
-  "$fix/in/2010/11/05/"
-
-# Keep only the valid segment of the failed wavelength (here: first 88 rows)
-head -n 88 /surge40/nabil/LimbFit_c/gaps/limb/2010/11/05/20101105_09_0094.limb \
-  > "$fix/in/2010/11/05/20101105_09_0094.limb"
-
-./lf2mpr_nrt.pdl -inpdir="$fix/in" -outdir="$fix/out" \
-  -year=2010 -month=11 -day=5 -hour=9 -require-all
-```
-
-The masterpoint filename and centre time come from the slot arguments, not the
-data span, so a fit over the surviving 60–90 minutes still produces a normal
-`masterpoint_20101105_1030_3hcadence.txt` that ingests like any other row.
-Copy it over the staged `NaN` version in the approved directory — never keep
-both, since `update3h_mpt.pl` ingests every file in `-srcdir`:
-
-```console
-cp "$fix/out/masterpoint_20101105_1030_3hcadence.txt" "$approved/"
-```
-
-Then continue with the usual `-dry-run` and publish steps for the batch.
-
-## Reduction and recovery
-
-`lf2mpr_nrt.pdl` reduces all configured wavelengths for one slot using two-pass
-sigma clipping. It filters the 4500 Å sentinel, rejects obvious split clusters,
-and writes files atomically. If one wavelength fails, it writes `NaN` for that
-wavelength and continues; `-require-all` rejects missing input files.
-
-```console
-./lf2mpr_nrt.pdl \
-  -inpdir=/path/to/fits -outdir=/tmp/masterpoints \
-  -year=2024 -month=3 -day=28 -hour=0 -require-all
-```
-
-Reducer thresholds and split-cluster detection remain configurable in `config.pl`.
-For an operator-approved value after a reducer failure, supply a validated override:
-
-```text
-# wavelength  x_center  y_center
-335 2040.554 2046.711556
-```
-
-```console
-./lf2mpr_nrt.pdl ... -override-file=/path/to/overrides.txt
-```
-
-Overrides are accepted only for failed/non-finite wavelengths; invalid, duplicate,
-unconfigured, and unused entries are rejected.
-
-`suggest_nan_overrides.pl` turns missing masterpoint values into reviewable override
-files using neighboring masterpoints and, when available, radius-consistent limb
-samples:
-
-```console
-./suggest_nan_overrides.pl \
-  -srcdir=/surge40/nabil/LimbFit_c/mpt3h \
-  -fits-root=/surge40/nabil/LimbFit_c/fits_nrt \
-  -outdir=/tmp/limbfit-overrides
-```
-
-`HIGH` means limb and temporal evidence agree. A conflict still emits a
-`REVIEW_REQUIRED` best guess: it prefers the direct limb candidate; if the target
-limb is unavailable, it uses the bounded temporal candidate. The output file is
-reducer-compatible but is never applied automatically. `UNRESOLVED` is reserved
-for cases without two sufficiently close trusted anchors, where the tool has no
-defensible numeric estimate.
-
-For example, a conflict still produces an actionable file:
-
-```text
-CONFLICT masterpoint_20260707_0430_3hcadence.txt 335 ...
-BEST_GUESS masterpoint_20260707_0430_3hcadence.txt 335 2040.554000 2046.711556 ... confidence=REVIEW_REQUIRED
-```
-
-For one reviewed failure, copy the masterpoint, edit only the failed wavelength
-using that override, inspect the diff, and preview ingestion:
-
-```console
-set name = masterpoint_20260707_0430_3hcadence.txt
-set srcdir = /surge40/nabil/LimbFit_c/mpt3h
-set approved = `mktemp -d`
-
-cp "$srcdir/$name" "$approved/$name"
-cat ./masterpoint_20260707_0430_3hcadence.overrides.txt
-if ($?EDITOR) then
-  $EDITOR "$approved/$name"
-else
-  vi "$approved/$name"
-endif
-
-diff -u "$srcdir/$name" "$approved/$name"
-rg 'A_335_[XY]0' "$approved/$name"
-./update3h_mpt.pl -srcdir="$approved" -dry-run
-# Only after approving the two changed values:
-./update3h_mpt.pl -srcdir="$approved"
-```
-
-When every source limb exists, the reproducible alternative is to regenerate the
-slot with the same override, then inspect `$work` and pass it to
-`update3h_mpt.pl -dry-run` before publishing:
-
-```console
-set work = `mktemp -d`
-./lf2mpr_nrt.pdl \
-  -inpdir=/surge40/nabil/LimbFit_c/fits_nrt \
-  -outdir="$work" \
-  -year=2026 -month=7 -day=7 -hour=3 \
-  -require-all \
-  -override-file=./masterpoint_20260707_0430_3hcadence.overrides.txt
-```
-
-If the wavelength is absent because its source limb file is missing, do not
-regenerate the masterpoint: the reducer cannot consume an override without that
-input. For `masterpoint_20260610_1930_3hcadence.txt`, copy the file as above and
-add only:
-
-```text
-KWD A_1600_X0	2049.983532
-KWD A_1600_Y0	2049.797014
-```
-
-After the diff, dry-run, and publish steps, confirm the 18:00 slot in DRMS
-(`aia_mpt_day 2026.06.10` if that local alias is installed):
-
-```console
-show_info 'key=T_START,T_STOP,A_1600_X0,A_1600_Y0' \
-  'aia.master_pointing3h[2026.06.10/1d]' | column -t
-```
-
-### Split clusters
-
-When the reducer reports two separated temporal clusters, inspect the diagnostic
-plot and keep only the physically valid segment. For the included 94 Å example:
-
-```console
-# Keep the first segment; use tail -n +89 for the second
-head -n 88 data/20260326_18_0094.limb > /tmp/20260326_18_0094.limb
-
-mkdir -p /tmp/splitfix/in/2026/03/26 /tmp/splitfix/out
-cp /tmp/20260326_18_0094.limb \
-  /tmp/splitfix/in/2026/03/26/20260326_18_0094.limb
-
-./lf2mpr_nrt.pdl \
-  -year=2026 -month=3 -day=26 -hour=18 \
-  -inpdir=/tmp/splitfix/in -outdir=/tmp/splitfix/out
-```
-
-Inspect the resulting masterpoint before passing it to `update3h_mpt.pl`. The
-original production `.limb` file remains unchanged.
+The scanner reports records whose `R_SUN`, `CRPIX1`, or `CRPIX2` are not finite
+and positive, or whose `CRVAL1`/`CRVAL2` are not finite. Repair or exclude the
+source data; do not synthesize a replacement center.
 
 ## Diagnostic plots
 
-`plot_limb.py` plots raw X/Y centres, radius, and centre scatter. It invokes the
-real reducer and annotates the PNG with its final centre or exact failure reason;
-it does not reimplement reducer logic.
+`plot_limb.py` plots X/Y centers, radius by sample, and center scatter:
 
 ```console
-./plot_limb.py data/20260707_03_0335.limb -o /tmp/diagnostic.png
-./plot_limb.py data/20260707_03_0335.limb --no-reducer
+./plot_limb.py data/20260326_18_0094.limb -o /tmp/diagnostic.png
 ```
 
-It requires NumPy and Matplotlib. Use `--perl=/path/to/perl` outside the deployed
-JSOC environment.
+It requires NumPy and Matplotlib. Reduction and its exact failure reason remain
+in Perl so the plotter does not duplicate production rules.
 
 ## Development
 
-The pipeline requires Perl 5.42, PDL, and `PDL::Stats`. Formatting and linting
-also use `Perl::Tidy` and `Perl::Critic`.
+The pipeline requires Perl 5.38 or newer and PDL. Formatting and linting use
+Perl::Tidy, Perl::Critic, and Ruff.
 
 ```console
-perlbrew install perl-5.42.0
-perlbrew switch perl-5.42.0
-cpanm PDL PDL::Stats Perl::Tidy Perl::Critic
-
 prove -lv t
 ./tools/format-perl.sh
 ./tools/lint-perl.sh
-csh -n config.csh pipeline_slot_nrt.csh
+ruff check plot_limb.py
+csh -n config.csh
 ```
-
-Tests can inject temporary paths and fake executables with
-`AIA_LIMBFIT_CONFIG=/path/to/config.pl`. GitHub Actions runs the Perl suite;
-pre-commit runs Ruff and lightweight repository checks.

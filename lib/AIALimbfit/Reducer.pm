@@ -3,13 +3,10 @@ package AIALimbfit::Reducer;
 use v5.38;
 use Exporter qw(import);
 use PDL;
-use PDL::Stats::Basic;
 
 our @EXPORT_OK = qw(
   detect_split_cluster
-  filter_4500_sentinel
   kwd_lines
-  limb_input_path
   masterpoint_filename
   reduce_limb_points
 );
@@ -21,35 +18,19 @@ sub masterpoint_filename ( $year, $month, $day, $hour, $duration_h ) {
     $year, $month, $day, int($center_h), $minute, $duration_h;
 }
 
-sub limb_input_path ( $root, $year, $month, $day, $hour, $wavelength ) {
-  return sprintf '%s/%d/%.2d/%.2d/%d%.2d%.2d_%.2d_%.4d.limb',
-    $root, $year, $month, $day, $year, $month, $day, $hour, $wavelength;
+sub _stddev ($values) {
+  my $mean = $values->avg;
+  return sqrt( ( $values - $mean )->pow(2)->avg );
 }
 
 sub detect_split_cluster ( $x0, $y0, $cfg ) {
-  return if ( $cfg->{split_cluster_mode} // 'fail' ) eq 'ignore';
-
   my $n       = $x0->dim(0);
   my $min_seg = $cfg->{split_cluster_min_segment_size} // 20;
   return if $n < 2 * $min_seg;
 
-  my @x = $x0->list;
-  my @y = $y0->list;
-
   my $jumps = sqrt( ( $x0->slice( '1:-1' ) - $x0->slice( '0:-2' ) )**2
     + ( $y0->slice( '1:-1' ) - $y0->slice( '0:-2' ) )**2 );
-  return if $jumps->dim(0) < 3;
-
-  my $max_idx  = $jumps->maximum_ind->at;
-  my $max_jump = $jumps->at($max_idx);
-
-  my $mask   = ones( $jumps->dim(0) );
-  $mask->slice("$max_idx") .= 0;
-  my $pother = $jumps->where($mask);
-  my $ojm    = $pother->avg;
-  my $ojs    = $pother->stdv;
-
-  my $second_jump = $pother->max->at;
+  my $max_idx = $jumps->maximum_ind->at;
 
   my $n1 = $max_idx + 1;
   my $n2 = $n - $n1;
@@ -67,36 +48,35 @@ sub detect_split_cluster ( $x0, $y0, $cfg ) {
   my $scatter2 = sqrt( ( $px2 - $xm2 )->pow(2)->avg + ( $py2 - $ym2 )->pow(2)->avg );
   my $scatter  = $scatter1 > $scatter2 ? $scatter1 : $scatter2;
 
-  my $jump_threshold = $ojm + ( $cfg->{split_cluster_jump_sigma} // 6 ) * $ojs;
-  my $jump_ratio     = $second_jump > 0 ? $max_jump / $second_jump : 1_000_000;
-  my $center_sep     = sqrt( ( $xm1 - $xm2 )**2 + ( $ym1 - $ym2 )**2 );
-  my $sep_ratio      = $scatter > 0 ? $center_sep / $scatter : 1_000_000;
+  my $center_sep = sqrt( ( $xm1 - $xm2 )**2 + ( $ym1 - $ym2 )**2 );
+  my $sep_ratio  = $scatter > 0 ? $center_sep / $scatter : 1_000_000;
+  return if $sep_ratio <= ( $cfg->{split_cluster_separation_ratio} // 10 );
 
-  return
-       if $max_jump <= $jump_threshold
-    || $jump_ratio <= ( $cfg->{split_cluster_jump_ratio}       // 3 )
-    || $sep_ratio <=  ( $cfg->{split_cluster_separation_ratio} // 10 );
-
-  return 1;
+  return {
+    split_after     => $n1,
+    first_segment   => $n1,
+    second_segment  => $n2,
+    separation_ratio => $sep_ratio,
+  };
 }
 
-sub filter_4500_sentinel ( $x0, $y0, $sentinel ) {
+sub _filter_4500_sentinel ( $x0, $y0, $sentinel ) {
   my $valid = which( ( $x0 != $sentinel ) & ( $y0 != $sentinel ) );
   return ( $x0->index($valid), $y0->index($valid) );
 }
 
 sub reduce_limb_points ( $x0, $y0, $wavelength, $cfg ) {
-  my $pass1_baseline = $cfg->{sigma_clip_pass1_baseline} // 'zero';
-  my $pass2_baseline = $cfg->{sigma_clip_pass2_baseline} // 'mean';
-  my $pass1_sigma    = $cfg->{sigma_clip_pass1_sigma}    // 2;
-  my $pass2_sigma    = $cfg->{sigma_clip_pass2_sigma}    // 3;
-  my $split_mode     = $cfg->{split_cluster_mode}        // 'fail';
+  my $pass1_sigma = $cfg->{sigma_clip_pass1_sigma} // 2;
+  my $pass2_sigma = $cfg->{sigma_clip_pass2_sigma} // 3;
 
   if ( $wavelength == 4500 ) {
-    ( $x0, $y0 ) = filter_4500_sentinel( $x0, $y0, $cfg->{nan_sentinel} // 1_234_567 );
+    ( $x0, $y0 ) = _filter_4500_sentinel( $x0, $y0, $cfg->{nan_sentinel} // 1_234_567 );
   }
-  if ( $wavelength != 4500 && $split_mode ne 'ignore' && detect_split_cluster( $x0, $y0, $cfg ) ) {
-    die "Split-cluster detected (${wavelength}A)\n";
+  if ( $wavelength != 4500 && ( my $split = detect_split_cluster( $x0, $y0, $cfg ) ) ) {
+    die sprintf
+      "Split-cluster detected (%dA): split after row %d, segments %d/%d, separation/scatter %.1f\n",
+      $wavelength, $split->{split_after}, $split->{first_segment}, $split->{second_segment},
+      $split->{separation_ratio};
   }
 
   my ( $xp2, $yp2 );
@@ -109,7 +89,7 @@ sub reduce_limb_points ( $x0, $y0, $wavelength, $cfg ) {
     my $dy = $y0 - $y0->avg;
     my $cd = sqrt( $xd * $xd + $dy * $dy );
     # Inclusive boundary: points exactly on the threshold are retained
-    my $pass1_cutoff = $pass1_sigma * $cd->stdv + ( $pass1_baseline eq 'mean' ? $cd->avg : 0 );
+    my $pass1_cutoff = $pass1_sigma * _stddev($cd);
     my $mask         = which( $cd <= $pass1_cutoff );
     my $xp = $x0->index($mask);
     my $yp = $y0->index($mask);
@@ -123,7 +103,7 @@ sub reduce_limb_points ( $x0, $y0, $wavelength, $cfg ) {
       my $ydp = $yp - $yp->avg;
       my $cp  = sqrt( $xdp * $xdp + $ydp * $ydp );
       # Inclusive boundary: points exactly on the threshold are retained
-      my $pass2_cutoff = $pass2_sigma * $cp->stdv + ( $pass2_baseline eq 'mean' ? $cp->avg : 0 );
+      my $pass2_cutoff = $cp->avg + $pass2_sigma * _stddev($cp);
       my $m2           = which( $cp <= $pass2_cutoff );
       $xp2 = $xp->index($m2);
       $yp2 = $yp->index($m2);

@@ -1,160 +1,132 @@
 #!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
 use v5.38;
-use FindBin        qw($RealBin);
-use File::Basename qw(basename);
-use File::Copy     qw(copy);
+use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::Reducer qw(kwd_lines limb_input_path masterpoint_filename reduce_limb_points);
-use PDL;
-use PDL::IO::Misc;
+use AIALimbfit::DrmsRuntime    qw(configure_drms_environment validate_drms_runtime show_info_lines);
+use AIALimbfit::Inventory      qw(limb_path);
+use AIALimbfit::LimbfitCommand qw(validate_limbfit_args);
+use AIALimbfit::Reducer        qw(kwd_lines masterpoint_filename reduce_limb_points);
+use AIALimbfit::Slot           qw(tstr2ts);
 use Getopt::Long;
-use File::Path   qw(make_path);
+use File::Path qw(make_path);
+use PDL::IO::Misc;
 use Scalar::Util qw(looks_like_number);
-
-sub _read_overrides {
-  my ($path) = @_;
-  return {} unless defined $path;
-  open my $fh, '<', $path or die "Cannot open override file '$path': $!\n";
-  my %overrides;
-  my $line_number = 0;
-  while (<$fh>) {
-    $line_number++;
-    s/#.*//;
-    next unless /\S/;
-    my ( $wavelength, $x_center, $y_center, @extra ) = split;
-    die "Invalid override at $path line $line_number; expected: wavelength x_center y_center\n"
-      if @extra
-      || !defined $wavelength
-      || !defined $x_center
-      || !defined $y_center
-      || $wavelength !~ /^\d+$/
-      || !looks_like_number($x_center)
-      || !looks_like_number($y_center)
-      || $x_center != $x_center
-      || $y_center != $y_center;
-    die "Duplicate override for ${wavelength}A in '$path'\n" if exists $overrides{$wavelength};
-    $overrides{$wavelength} = [ $x_center + 0, $y_center + 0 ];
-  }
-  close $fh or die "Cannot close override file '$path': $!\n";
-  return \%overrides;
-}
-
-sub _nan_kwd_lines {
-  my ($wavelength) = @_;
-  return (
-    sprintf( "KWD A_%.3d_X0\tNaN\n",   $wavelength ),
-    sprintf( "KWD A_%.3d_Y0\tNaN\n\n", $wavelength ),
-  );
-}
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-my @wl          = @{ $cfg->{wl} };
-my $dur         = $cfg->{cadence_h};
-my $inpdir      = '/data1/tmp/LimbFits';
-my $outdir      = '/data1/tmp/mpt3h';
-my $stagedir    = $cfg->{pointing_dir};
-my $email       = 0;
-my $require_all = 0;
-my $override_file;
-my ( $inpnam, $stage );
-my ( $sec, $mn, $hr, $da, $mo, $yr, $wdy, $yd, $isd ) = gmtime time - 3600;
-$yr += 1900;
-$mo++;
-$hr = $mn = $sec = 0;
+my ( $yr, $mo, $da, $hr );
+my $inpdir = $cfg->{fits_root};
+my $outdir = $cfg->{pointing_dir};
+my ( $previous, $next );
+
 GetOptions(
-  'year=i'          => \$yr,
-  'month=i'         => \$mo,
-  'day=i'           => \$da,
-  'hour=i'          => \$hr,
-  'dur=i'           => \$dur,
-  'inpdir=s'        => \$inpdir,
-  'outdir=s'        => \$outdir,
-  'stage!'          => \$stage,
-  'stgdir=s'        => \$stagedir,
-  'email'           => \$email,
-  'require-all'     => \$require_all,
-  'override-file=s' => \$override_file,
+  'year=i'                 => \$yr,
+  'month=i'                => \$mo,
+  'day=i'                  => \$da,
+  'hour=i'                 => \$hr,
+  'inpdir=s'               => \$inpdir,
+  'outdir=s'               => \$outdir,
+  'interpolate-previous=s' => \$previous,
+  'interpolate-next=s'     => \$next,
 ) or die "Invalid options\n";
+die "--year, --month, --day, and --hour are required\n"
+  unless defined $yr && defined $mo && defined $da && defined $hr;
+validate_limbfit_args( year => $yr, month => $mo, day => $da, hour => $hr );
+die "Hour must be on the $cfg->{cadence_h}-hour cadence\n" if $hr % $cfg->{cadence_h};
+die "Input and output directories must not be empty\n"
+  unless defined $inpdir && length($inpdir) && defined $outdir && length($outdir);
+die "Interpolation requires both --interpolate-previous and --interpolate-next\n"
+  if defined($previous) != defined($next);
+
 umask 0002;
+my @wl      = @{ $cfg->{wl} };
+my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $cfg->{cadence_h} );
+my $outnam  = "$outdir/$outbase";
+my $slot    = sprintf '%04d-%02d-%02dT%02d:00:00Z', $yr, $mo, $da, $hr;
+unlink $outnam or die "Cannot remove stale '$outnam': $!\n" if -e $outnam;
 
-my $overrides = _read_overrides($override_file);
-for my $w ( keys %{$overrides} ) {
-  die "Override wavelength ${w}A is not configured\n" unless grep { $_ == $w } @wl;
+my @kwd;
+if ( defined $previous ) {
+  configure_drms_environment($cfg);
+  validate_drms_runtime( $cfg->{show_info} );
+  my ( $target_epoch, $previous_epoch, $next_epoch ) =
+    ( tstr2ts($slot), tstr2ts($previous), tstr2ts($next) );
+  die "Invalid interpolation timestamp\n"
+    unless defined $target_epoch && defined $previous_epoch && defined $next_epoch;
+  die "Interpolation target must be strictly between its sources\n"
+    if $previous_epoch >= $target_epoch || $target_epoch >= $next_epoch;
+
+  my @keys = map { ( sprintf( 'A_%.3d_X0', $_ ), sprintf( 'A_%.3d_Y0', $_ ) ) } @wl;
+  my @source;
+  for my $time ( $previous, $next ) {
+    my @lines = show_info_lines(
+      $cfg->{show_info}, '-q',
+      'key=' . join( q{,}, @keys ),
+      sprintf( '%s[%s]', $cfg->{mpt_series}, $time )
+    );
+    chomp @lines;
+    @lines = grep { /\S/ } @lines;
+    die "Expected one pointing record at $time, found " . scalar(@lines) . "\n" unless @lines == 1;
+    my @values = split /\s+/, $lines[0];
+    die "Incomplete pointing record at $time\n" unless @values == @keys;
+    for my $i ( 0 .. $#values ) {
+      die "Cannot interpolate $keys[$i]: invalid value '$values[$i]' at $time\n"
+        if !looks_like_number( $values[$i] )
+        || $values[$i] =~ /(?:nan|inf)/i
+        || ( defined $cfg->{nan_sentinel} && $values[$i] == $cfg->{nan_sentinel} );
+    }
+    push @source, \@values;
+  }
+  my $fraction = ( $target_epoch - $previous_epoch ) / ( $next_epoch - $previous_epoch );
+  for my $i ( 0 .. $#wl ) {
+    push @kwd,
+      kwd_lines(
+      $wl[$i],
+      $source[0][ $i * 2 ] + $fraction * ( $source[1][ $i * 2 ] - $source[0][ $i * 2 ] ),
+      $source[0][ $i * 2 + 1 ] + $fraction * ( $source[1][ $i * 2 + 1 ] - $source[0][ $i * 2 + 1 ] )
+      );
+  }
+  warn "INTERPOLATION OK slot=$slot previous=$previous next=$next fraction=$fraction\n";
 }
+else {
+  my @missing = grep { !-s limb_path( $inpdir, $yr, $mo, $da, $hr, $_ ) } @wl;
+  die "Missing or empty limb files: " . join( ', ', map { "${_}A" } @missing ) . "\n" if @missing;
 
-my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $dur );
-my $slot    = sprintf '%04d-%02d-%02dT%02d:00Z', $yr, $mo, $da, $hr;
-make_path( $outdir,   { chmod => oct('755') } ) unless -d $outdir;
-make_path( $stagedir, { chmod => oct('755') } ) if $stage && !-d $stagedir;
-
-my $outnam       = "$outdir/$outbase";
-my $stage_outnam = "$stagedir/" . basename($outbase);
-my @missing      = grep { !-s limb_input_path( $inpdir, $yr, $mo, $da, $hr, $_ ) } @wl;
-die "Missing or empty limb files: " . join( ', ', map { "${_}A" } @missing ) . "\n"
-  if $require_all && @missing;
-
-my ( @kwd, @nan_wavelengths );
-foreach my $w (@wl) {
-  $inpnam = limb_input_path( $inpdir, $yr, $mo, $da, $hr, $w );
-  next unless -e $inpnam;
-  next if -z $inpnam;
-  my ( $x0, $y0 ) = rcols $inpnam, 0, 1;
-
-  my ( $xp2, $yp2, $xp2av, $yp2av ) = eval { reduce_limb_points( $x0, $y0, $w, $cfg ) };
-  my $failure   = $@;
-  my $nonfinite = !$failure && ( "$xp2av" =~ /(?:nan|inf)/i || "$yp2av" =~ /(?:nan|inf)/i );
-  if ( $failure || $nonfinite ) {
-    chomp $failure;
-    my $detail        = $failure || 'non-finite reducer result';
-    my $used_override = 0;
-    if ( my $override = delete $overrides->{$w} ) {
-      push @kwd, kwd_lines( $w, @{$override} );
-      warn "Using override for ${w}A after reducer failure: $detail\n";
-      $used_override = 1;
+  my @failed;
+  for my $w (@wl) {
+    my $path = limb_path( $inpdir, $yr, $mo, $da, $hr, $w );
+    my ( $xavg, $yavg );
+    my $reduced = eval {
+      my ( $x0, $y0 ) = rcols $path, 0, 1;
+      ( undef, undef, $xavg, $yavg ) = reduce_limb_points( $x0, $y0, $w, $cfg );
+      1;
+    };
+    my $failure = $@;
+    $failure = "non-finite reducer result\n"
+      if $reduced && ( "$xavg" =~ /(?:nan|inf)/i || "$yavg" =~ /(?:nan|inf)/i );
+    if ( !$reduced || $failure ) {
+      chomp $failure;
+      warn "REDUCER FAIL slot=$slot wavelength=${w}A reason=$failure\n";
+      push @failed, "${w}A: $failure";
+      next;
     }
-    else {
-      push @kwd,             _nan_kwd_lines($w);
-      push @nan_wavelengths, $w;
-      warn "Writing NaN for ${w}A; other wavelengths will continue: $detail\n";
-    }
-
-    if ( $email && !$used_override ) {
-      my @recipients = split /,/, ( $cfg->{mail_to} // q{} );
-      if ( open my $mail_fh, q{|-}, q{mailx}, '-s', "${w}A NaN result 3h MPT", @recipients ) {
-        print {$mail_fh} "${w}A NaN result 3h MPT\n$inpnam\n$detail\n";
-        close $mail_fh or warn "mailx failed: $?\n";
-      }
-    }
-    next;
+    push @kwd, kwd_lines( $w, $xavg, $yavg );
   }
 
-  push @kwd, kwd_lines( $w, $xp2av, $yp2av );
+  die "Reducer failed for $slot: " . join( '; ', @failed ) . "\n" if @failed;
 }
-
-die "No usable limb files for $yr-$mo-$da $hr:00 UTC\n" unless @kwd;
-die "Unused overrides for wavelengths: "
-  . join( ', ', map { "${_}A" } sort { $a <=> $b } keys %{$overrides} ) . "\n"
-  if keys %{$overrides};
-
-my $out_tmp   = "$outnam.$$";
-my $stage_tmp = "$stage_outnam.$$";
+make_path( $outdir, { chmod => oct('755') } ) unless -d $outdir;
+my $temporary = "$outnam.$$";
 my $written   = eval {
-  open my $fh, '>', $out_tmp or die "Can't open '$out_tmp' for writing: $!\n";
+  open my $fh, '>', $temporary or die "Can't open '$temporary' for writing: $!\n";
   print {$fh} @kwd;
-  close $fh or die "Can't close '$out_tmp': $!\n";
-  rename $out_tmp, $outnam or die "Can't replace '$outnam': $!\n";
-  if ($stage) {
-    copy( $outnam, $stage_tmp ) or die "Can't copy '$outnam' to '$stage_tmp': $!\n";
-    rename $stage_tmp, $stage_outnam or die "Can't replace '$stage_outnam': $!\n";
-  }
+  close $fh or die "Can't close '$temporary': $!\n";
+  rename $temporary, $outnam or die "Can't replace '$outnam': $!\n";
   1;
 };
 if ( !$written ) {
   my $error = $@ || "Unknown write failure\n";
-  unlink $out_tmp   if -e $out_tmp;
-  unlink $stage_tmp if -e $stage_tmp;
+  unlink $temporary if -e $temporary;
   die $error;
 }
-my $nan = @nan_wavelengths ? join( q{,}, map { $_ . q{A} } @nan_wavelengths ) : 'none';
-warn "MASTERPOINT RESULT slot=$slot output=$outnam nan=$nan\n";
+warn "MASTERPOINT OK slot=$slot output=$outnam\n";

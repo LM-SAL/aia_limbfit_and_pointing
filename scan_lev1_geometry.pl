@@ -2,8 +2,7 @@
 use v5.38;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
-use File::Basename          qw(dirname);
+use AIALimbfit::DrmsRuntime qw(configure_drms_environment validate_drms_runtime show_info_lines);
 use Getopt::Long;
 use Scalar::Util qw(looks_like_number);
 
@@ -31,24 +30,13 @@ die usage() unless defined $ds && length $ds;
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-local $ENV{TZ}        = $cfg->{tz};
-local $ENV{SUMSERVER} = $ENV{SUMSERVER} // $cfg->{sumserver};
-my $drms_bin_dir = dirname( $cfg->{show_info} );
-my $drms_base    = dirname( dirname($drms_bin_dir) );
-local $ENV{DRMS_ROOT_DIR}           = $ENV{DRMS_ROOT_DIR}           // $drms_base;
-local $ENV{DRMS_INSTALL_DIR}        = $ENV{DRMS_INSTALL_DIR}        // $drms_base;
-local $ENV{DRMS_BINS_INSTALL_DIR}   = $ENV{DRMS_BINS_INSTALL_DIR}   // $drms_bin_dir;
-local $ENV{DRMS_LIBS_INSTALL_DIR}   = $ENV{DRMS_LIBS_INSTALL_DIR}   // "$drms_base/lib/linux_avx2";
-local $ENV{DRMS_INCS_INSTALL_DIR}   = $ENV{DRMS_INCS_INSTALL_DIR}   // "$drms_base/include";
-local $ENV{DRMS_PARAMS_INSTALL_DIR} = $ENV{DRMS_PARAMS_INSTALL_DIR} // "$drms_base/include/base";
-local $ENV{DRMS_SCRS_INSTALL_DIR}   = $ENV{DRMS_SCRS_INSTALL_DIR}   // "$drms_base/scripts";
-local $ENV{DRMS_SRC_INSTALL_DIR}    = $ENV{DRMS_SRC_INSTALL_DIR}    // "$drms_base/src";
+configure_drms_environment($cfg);
 
 my $show_info = $cfg->{show_info};
 validate_drms_runtime($show_info);
 
 my @keys  = qw(FSN T_OBS WAVELNTH R_SUN CRPIX1 CRPIX2 CRVAL1 CRVAL2);
-my @lines = show_info_lines( $show_info, '-q', 'key=' . join( ',', @keys ), $ds );
+my @lines = show_info_lines( $show_info, '-q', q{key=} . join( q{,}, @keys ), $ds );
 chomp @lines;
 @lines = grep { /\S/ } @lines;
 
@@ -72,8 +60,8 @@ for my $line (@lines) {
 
   $invalid++;
   printf
-"INVALID FSN=%s T_OBS=%s WAVELNTH=%s R_SUN=%s CRPIX1=%s CRPIX2=%s CRVAL1=%s CRVAL2=%s fields=%s\n",
-    @values, join( ',', @bad );
+qq{INVALID FSN=%s T_OBS=%s WAVELNTH=%s R_SUN=%s CRPIX1=%s CRPIX2=%s CRVAL1=%s CRVAL2=%s fields=%s\n},
+    @values, join( q{,}, @bad );
 }
 
 printf "SUMMARY records=%d invalid=%d\n", $records, $invalid;

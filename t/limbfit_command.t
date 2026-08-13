@@ -5,20 +5,12 @@ use File::Temp qw(tempdir);
 use Test::More;
 
 use AIALimbfit::LimbfitCommand qw(
-  dated_dir
-  limb_filename
-  limbfit_argv
   limbfit_command
   limbfit_query
   plot_command
-  plot_path
   run_limbfit_to_file
-  shell_quote
   wavelength_sum
 );
-
-is( dated_dir( '/tmp/fits', 2026, 5, 1 ), '/tmp/fits/2026/05/01',  'dated output directory' );
-is( limb_filename( 2026, 5, 1, 3, 94 ),   '20260501_03_0094.limb', 'limb filename is padded' );
 
 is( wavelength_sum(94),   5, 'sum 5 below 1500A' );
 is( wavelength_sum(1600), 3, 'sum 3 below 4000A' );
@@ -39,8 +31,6 @@ is(
   'limbfit query format'
 );
 
-is( shell_quote(q{a'b}), q{'a'"'"'b'}, 'shell quote escapes single quote' );
-
 is(
   limbfit_command(
     limbfit_exe => '/bin/limbfit',
@@ -51,24 +41,10 @@ is(
   q{/bin/limbfit dsinp='series[2026.05.01_03/3h]' sum=5 > '/tmp/out'"'"'s.limb'},
   'limbfit shell command'
 );
-is_deeply(
-  [
-    limbfit_argv(
-      limbfit_exe => '/bin/limbfit',
-      query       => q{series[2026.05.01_03/3h]},
-      sum         => 5,
-    )
-  ],
-  [ '/bin/limbfit', 'dsinp=series[2026.05.01_03/3h]', 'sum=5' ],
-  'limbfit argv'
-);
 
-is( plot_path('/tmp/a.limb'), '/tmp/a.png', 'plot path swaps suffix' );
 is_deeply(
-  [
-    plot_command( plotter => 'plot_limb.py', limb_path => '/tmp/a.limb', perl => '/usr/bin/perl' )
-  ],
-  [ 'plot_limb.py', '/tmp/a.limb', '-o', '/tmp/a.png', '--perl', '/usr/bin/perl' ],
+  [ plot_command( plotter => 'plot_limb.py', limb_path => '/tmp/a.limb' ) ],
+  [ 'plot_limb.py', '/tmp/a.limb', '-o', '/tmp/a.png' ],
   'plot command argv'
 );
 

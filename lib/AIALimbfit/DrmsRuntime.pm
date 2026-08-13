@@ -2,8 +2,34 @@ package AIALimbfit::DrmsRuntime;
 
 use v5.38;
 use Exporter qw(import);
+use File::Basename qw(dirname);
 
-our @EXPORT_OK = qw(validate_drms_runtime show_info_lines);
+our @EXPORT_OK = qw(configure_drms_environment validate_drms_runtime show_info_lines);
+
+sub configure_drms_environment ($cfg) {
+  my $root = $cfg->{drms_root_dir};
+  my $bins = $cfg->{show_info} ? dirname( $cfg->{show_info} ) : undef;
+  $root //= dirname( dirname($bins) ) if defined $bins;
+  $bins //= "$root/bin/linux_avx2" if defined $root;
+  my %value = (
+    TZ                      => $cfg->{tz},
+    SUMSERVER               => $cfg->{sumserver},
+    SGE_ROOT                => $cfg->{sge_root},
+    DRMS_ROOT_DIR           => $root,
+    DRMS_INSTALL_DIR        => $root,
+    DRMS_BINS_INSTALL_DIR   => $bins,
+    DRMS_LIBS_INSTALL_DIR   => defined $root ? "$root/lib/linux_avx2" : undef,
+    DRMS_INCS_INSTALL_DIR   => defined $root ? "$root/include"       : undef,
+    DRMS_PARAMS_INSTALL_DIR => $cfg->{drms_params_install_dir}
+      // ( defined $root ? "$root/include/base" : undef ),
+    DRMS_SCRS_INSTALL_DIR => $cfg->{drms_scrs_install_dir}
+      // ( defined $root ? "$root/scripts" : undef ),
+    DRMS_SRC_INSTALL_DIR => $cfg->{drms_src_install_dir}
+      // ( defined $root ? "$root/src" : undef ),
+  );
+  $ENV{$_} //= $value{$_} for grep { defined $value{$_} } keys %value;
+  return;
+}
 
 sub validate_drms_runtime ($show_info) {
   for my $key (qw(DRMS_BINS_INSTALL_DIR DRMS_LIBS_INSTALL_DIR DRMS_INCS_INSTALL_DIR)) {

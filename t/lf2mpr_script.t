@@ -5,153 +5,105 @@ use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use Test::More;
 
-sub perl_quote ($value) {
+sub quote ($value) {
   $value =~ s/\\/\\\\/g;
   $value =~ s/'/\\'/g;
   return "'$value'";
 }
 
+sub config ( $path, $input, $output, @wavelengths ) {
+  open my $fh, '>', $path or die "Cannot write $path: $!";
+  print {$fh} "use v5.38;\nreturn {\n";
+  print {$fh} '  wl => [', join( ',', @wavelengths ), "],\n";
+  print {$fh} "  cadence_h => 3,\n";
+  print {$fh} "  fits_root => ",    quote($input),  ",\n";
+  print {$fh} "  pointing_dir => ", quote($output), ",\n";
+  print {$fh} "  nan_sentinel => 1234567,\n";
+  print {$fh} "  split_cluster_min_segment_size => 20,\n";
+  print {$fh} "  split_cluster_separation_ratio => 10,\n";
+  print {$fh} "};\n";
+  close $fh or die "Cannot close $path: $!";
+}
+
 my $repo = "$Bin/..";
 my $tmp  = tempdir( CLEANUP => 1 );
-my $inp  = "$tmp/inp";
+my $inp  = "$tmp/in";
 my $out  = "$tmp/out";
-my $stg  = "$tmp/stage";
 make_path("$inp/2026/05/01");
-
 my $limb = "$inp/2026/05/01/20260501_00_4500.limb";
 open my $limb_fh, '>', $limb or die "Cannot write $limb: $!";
-print {$limb_fh} "10 20\n";
-print {$limb_fh} "1234567 1234567\n";
+print {$limb_fh} "10 20\n1234567 1234567\n";
 close $limb_fh or die "Cannot close $limb: $!";
-copy( "$repo/data/20260707_03_0335.limb", "$inp/2026/05/01/20260501_00_0335.limb" )
-  or die "Cannot copy bimodal fixture: $!";
 
-my $config = "$tmp/config.pl";
-open my $cfg_fh, '>', $config or die "Cannot write $config: $!";
-print {$cfg_fh} "use v5.38;\nreturn {\n";
-print {$cfg_fh} "  wl => [335, 4500],\n";
-print {$cfg_fh} "  cadence_h => 3,\n";
-print {$cfg_fh} "  pointing_dir => ", perl_quote($stg), ",\n";
-print {$cfg_fh} "  nan_sentinel => 1234567,\n";
-print {$cfg_fh} "  split_cluster_mode => 'ignore',\n";
-print {$cfg_fh} "};\n";
-close $cfg_fh or die "Cannot close $config: $!";
-
-local $ENV{AIA_LIMBFIT_CONFIG} = $config;
-
-my $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$inp" -outdir="$out" -stage -stgdir="$stg" 2>&1);
-is( $? >> 8, 0, 'lf2mpr_nrt.pdl exits successfully' ) or diag $output;
-
+my $cfg = "$tmp/config.pl";
+config( $cfg, $inp, $out, 4500 );
+local $ENV{AIA_LIMBFIT_CONFIG} = $cfg;
+my $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 2>&1);
+is( $? >> 8, 0, 'complete finite slot reduces successfully' ) or diag $output;
 my $masterpoint = "$out/masterpoint_20260501_0130_3hcadence.txt";
-ok( index( $output, "MASTERPOINT RESULT slot=2026-05-01T00:00Z output=$masterpoint nan=335A" ) >= 0,
-  'reducer summarizes NaNs in the written masterpoint' );
-ok( -e $masterpoint, 'masterpoint file uses slot-center filename' );
+ok( -s $masterpoint, 'complete masterpoint is written' );
 open my $mp_fh, '<', $masterpoint or die "Cannot read $masterpoint: $!";
 my $content = do { local $/; <$mp_fh> };
 close $mp_fh or die "Cannot close $masterpoint: $!";
+like( $content, qr/^KWD A_4500_X0\t10[.]000000$/m, 'sentinel row is excluded' );
 
-like( $content, qr/^KWD A_4500_X0\t10[.]000000$/m, '4500 sentinel row is excluded from x average' );
-like( $content, qr/^KWD A_4500_Y0\t20[.]000000$/m, '4500 sentinel row is excluded from y average' );
-like( $content, qr/^KWD A_335_X0\tNaN$/m, 'failed 335 reduction writes NaN x and continues' );
-like( $content, qr/^KWD A_335_Y0\tNaN$/m, 'failed 335 reduction writes NaN y and continues' );
-ok( -e "$stg/masterpoint_20260501_0130_3hcadence.txt", 'stage copy is written' );
+unlink $limb or die "Cannot remove $limb: $!";
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 2>&1);
+isnt( $? >> 8, 0, 'missing wavelength fails the whole slot' );
+like( $output, qr{Missing or empty limb files: 4500A}, 'missing wavelength is named' );
+ok( !-e $masterpoint, 'failed retry removes the stale masterpoint' );
 
-my $overrides = "$tmp/overrides.txt";
-open my $override_fh, '>', $overrides or die "Cannot write $overrides: $!";
-print {$override_fh} "# wavelength x_center y_center\n335 2040.554 2046.711556\n";
-close $override_fh or die "Cannot close $overrides: $!";
-$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$inp" -outdir="$out" -override-file="$overrides" 2>&1);
-is( $? >> 8, 0, 'explicit override reduction exits successfully' ) or diag $output;
-open my $override_out_fh, '<', $masterpoint or die "Cannot read $masterpoint: $!";
-my $override_content = do { local $/; <$override_out_fh> };
-close $override_out_fh or die "Cannot close $masterpoint: $!";
-like( $override_content, qr/^KWD A_335_X0\t2040[.]554000$/m, 'override supplies selected 335 x value' );
-like( $override_content, qr/^KWD A_335_Y0\t2046[.]711556$/m, 'override supplies selected 335 y value' );
+my $split_cfg = "$tmp/split.pl";
+my $split_in  = "$tmp/split_in";
+my $split_out = "$tmp/split_out";
+make_path("$split_in/2026/05/01");
+copy( "$repo/data/20260326_18_0094.limb", "$split_in/2026/05/01/20260501_00_0094.limb" )
+  or die "Cannot copy split fixture: $!";
+config( $split_cfg, $split_in, $split_out, 94 );
+local $ENV{AIA_LIMBFIT_CONFIG} = $split_cfg;
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 2>&1);
+isnt( $? >> 8, 0, 'split cluster fails the whole slot' );
+like( $output, qr{split after row 88, segments 88/92}, 'split failure is actionable' );
+ok( !-e "$split_out/masterpoint_20260501_0130_3hcadence.txt", 'failed slot writes no masterpoint' );
 
-my $bad_overrides = "$tmp/bad_overrides.txt";
-open my $bad_override_fh, '>', $bad_overrides or die "Cannot write $bad_overrides: $!";
-print {$bad_override_fh} "335 NaN 2046.704\n";
-close $bad_override_fh or die "Cannot close $bad_overrides: $!";
-$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$inp" -outdir="$out" -override-file="$bad_overrides" 2>&1);
-isnt( $? >> 8, 0, 'non-finite override is rejected' );
-like( $output, qr{Invalid override}, 'invalid override error is explicit' );
+my $drms = "$tmp/drms";
+make_path( "$drms/bin/linux_avx2", "$drms/lib/linux_avx2", "$drms/include" );
+my $show_info = "$drms/bin/linux_avx2/show_info";
+open my $show_fh, '>', $show_info or die "Cannot write $show_info: $!";
+print {$show_fh} <<'FAKE';
+#!/usr/bin/env perl
+use v5.38;
+my $query = $ARGV[-1];
+print $query =~ /T00:00:00Z/ ? "10 20\n" : $ENV{BAD_ENDPOINT} ? "NaN 32\n" : "16 32\n";
+FAKE
+close $show_fh or die "Cannot close $show_info: $!";
+chmod 0755, $show_info or die "Cannot chmod $show_info: $!";
 
-my $empty_inp = "$tmp/empty_inp";
-my $empty_out = "$tmp/empty_out";
-my $empty_stg = "$tmp/empty_stage";
-make_path( $empty_inp, $empty_out, $empty_stg );
+my $interpolated_out = "$tmp/interpolated";
+my $interpolation_cfg = "$tmp/interpolation.pl";
+open my $interpolation_fh, '>', $interpolation_cfg
+  or die "Cannot write $interpolation_cfg: $!";
+print {$interpolation_fh} "use v5.38;\nreturn {\n";
+print {$interpolation_fh} "  wl => [4500], cadence_h => 3, nan_sentinel => 1234567,\n";
+print {$interpolation_fh} "  fits_root => '/unused', pointing_dir => ", quote($interpolated_out), ",\n";
+print {$interpolation_fh} "  show_info => ", quote($show_info), ", mpt_series => 'test.pointing',\n";
+print {$interpolation_fh} "  sumserver => 'test',\n};\n";
+close $interpolation_fh or die "Cannot close $interpolation_cfg: $!";
 
-my $stale_out = "$empty_out/masterpoint_20260501_0130_3hcadence.txt";
-open my $stale_out_fh, '>', $stale_out or die "Cannot write $stale_out: $!";
-print {$stale_out_fh} "stale\n";
-close $stale_out_fh or die "Cannot close $stale_out: $!";
+local $ENV{AIA_LIMBFIT_CONFIG} = $interpolation_cfg;
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=3 -interpolate-previous=2026-05-01T00:00:00Z -interpolate-next=2026-05-01T06:00:00Z 2>&1);
+is( $? >> 8, 0, 'explicit bracketing interpolation succeeds' ) or diag $output;
+my $interpolated = "$interpolated_out/masterpoint_20260501_0430_3hcadence.txt";
+open my $interpolated_fh, '<', $interpolated or die "Cannot read $interpolated: $!";
+my $interpolated_content = do { local $/; <$interpolated_fh> };
+close $interpolated_fh or die "Cannot close $interpolated: $!";
+like( $interpolated_content, qr/^KWD A_4500_X0\t13[.]000000$/m, 'X center is interpolated' );
+like( $interpolated_content, qr/^KWD A_4500_Y0\t26[.]000000$/m, 'Y center is interpolated' );
 
-my $stale_stage = "$empty_stg/masterpoint_20260501_0130_3hcadence.txt";
-open my $stale_stage_fh, '>', $stale_stage or die "Cannot write $stale_stage: $!";
-print {$stale_stage_fh} "stale\n";
-close $stale_stage_fh or die "Cannot close $stale_stage: $!";
-
-my $empty_config = "$tmp/empty_config.pl";
-open my $empty_cfg_fh, '>', $empty_config or die "Cannot write $empty_config: $!";
-print {$empty_cfg_fh} "use v5.38;\nreturn {\n";
-print {$empty_cfg_fh} "  wl => [94],\n";
-print {$empty_cfg_fh} "  cadence_h => 3,\n";
-print {$empty_cfg_fh} "  pointing_dir => ", perl_quote($empty_stg), ",\n";
-print {$empty_cfg_fh} "  split_cluster_mode => 'ignore',\n";
-print {$empty_cfg_fh} "};\n";
-close $empty_cfg_fh or die "Cannot close $empty_config: $!";
-
-local $ENV{AIA_LIMBFIT_CONFIG} = $empty_config;
-$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$empty_inp" -outdir="$empty_out" -stage -stgdir="$empty_stg" 2>&1);
-cmp_ok( $? >> 8, '!=', 0, 'lf2mpr_nrt.pdl fails when no valid inputs are reduced' ) or diag $output;
-like( $output, qr/No usable limb files/, 'empty reducer run reports missing inputs' );
-ok( -e $stale_out,   'empty reducer run preserves previous output file' );
-ok( -e $stale_stage, 'empty reducer run preserves previous stage file' );
-
-my $copy_inp = "$tmp/copy_inp";
-my $copy_out = "$tmp/copy_out";
-my $copy_stg = "$tmp/copy_stage";
-make_path( "$copy_inp/2026/05/01", $copy_out, $copy_stg );
-
-my $copy_limb = "$copy_inp/2026/05/01/20260501_00_4500.limb";
-open my $copy_limb_fh, '>', $copy_limb or die "Cannot write $copy_limb: $!";
-print {$copy_limb_fh} "10 20\n";
-close $copy_limb_fh or die "Cannot close $copy_limb: $!";
-
-my $copy_config = "$tmp/copy_config.pl";
-open my $copy_cfg_fh, '>', $copy_config or die "Cannot write $copy_config: $!";
-print {$copy_cfg_fh} "use v5.38;\nreturn {\n";
-print {$copy_cfg_fh} "  wl => [4500],\n";
-print {$copy_cfg_fh} "  cadence_h => 3,\n";
-print {$copy_cfg_fh} "  pointing_dir => ", perl_quote($copy_stg), ",\n";
-print {$copy_cfg_fh} "  nan_sentinel => 1234567,\n";
-print {$copy_cfg_fh} "  split_cluster_mode => 'ignore',\n";
-print {$copy_cfg_fh} "};\n";
-close $copy_cfg_fh or die "Cannot close $copy_config: $!";
-
-chmod 0555, $copy_stg or die "Cannot chmod $copy_stg: $!";
-my $copy_exit;
-eval {
-    local $ENV{AIA_LIMBFIT_CONFIG} = $copy_config;
-    $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$copy_inp" -outdir="$copy_out" -stage -stgdir="$copy_stg" 2>&1);
-    $copy_exit = $? >> 8;
-};
-chmod 0755, $copy_stg or die "Cannot restore perms on $copy_stg: $!";
-die $@ if $@;
-cmp_ok( $copy_exit, '!=', 0, 'lf2mpr_nrt.pdl fails when the stage copy fails' ) or diag $output;
-like( $output, qr/Can't copy/, 'stage copy failure is reported' );
-ok( !-e "$copy_stg/masterpoint_20260501_0130_3hcadence.txt", 'stage copy failure leaves no stale staged output' );
-
-open my $old_fh, '>', $masterpoint or die "Cannot write $masterpoint: $!";
-print {$old_fh} "ORIGINAL\n";
-close $old_fh or die "Cannot close $masterpoint: $!";
-unlink "$inp/2026/05/01/20260501_00_0335.limb" or die "Cannot remove test fixture: $!";
-$ENV{AIA_LIMBFIT_CONFIG} = $config;
-$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -inpdir="$inp" -outdir="$out" -require-all 2>&1);
-isnt( $? >> 8, 0, 'require-all rejects an incomplete wavelength set' );
-like( $output, qr{Missing or empty limb files.*335A}, 'missing wavelength is reported' );
-open my $kept_fh, '<', $masterpoint or die "Cannot read $masterpoint: $!";
-is( do { local $/; <$kept_fh> }, "ORIGINAL\n", 'failed reduction preserves the previous output' );
-close $kept_fh or die "Cannot close $masterpoint: $!";
+local $ENV{BAD_ENDPOINT} = 1;
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=3 -interpolate-previous=2026-05-01T00:00:00Z -interpolate-next=2026-05-01T06:00:00Z 2>&1);
+isnt( $? >> 8, 0, 'non-finite interpolation endpoint is refused' );
+like( $output, qr{Cannot interpolate A_4500_X0: invalid value 'NaN'}, 'bad endpoint is named' );
+ok( !-e $interpolated, 'failed interpolation leaves no staged masterpoint' );
 
 done_testing;

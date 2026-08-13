@@ -7,26 +7,13 @@ use Exporter    qw(import);
 use Time::Local qw(timegm);
 
 our @EXPORT_OK = qw(
-  dated_dir
-  limb_filename
-  limbfit_argv
   limbfit_command
   limbfit_query
   plot_command
-  plot_path
   run_limbfit_to_file
-  shell_quote
   validate_limbfit_args
   wavelength_sum
 );
-
-sub dated_dir ( $root, $year, $month, $day ) {
-  return sprintf '%s/%d/%.2d/%.2d', $root, $year, $month, $day;
-}
-
-sub limb_filename ( $year, $month, $day, $hour, $wavelength ) {
-  return sprintf '%d%.2d%.2d_%.2d_%.4d.limb', $year, $month, $day, $hour, $wavelength;
-}
 
 sub limbfit_query (%args) {
   return sprintf '%s[%d.%.2d.%.2d_%.2d/%s][?WAVELNTH=%d?]%s',
@@ -54,17 +41,17 @@ sub validate_limbfit_args (%args) {
   return;
 }
 
-sub shell_quote ($value) {
+sub _shell_quote ($value) {
   $value =~ s/'/'"'"'/g;
   return "'$value'";
 }
 
 sub limbfit_command (%args) {
   return sprintf '%s dsinp=%s sum=%d > %s',
-    $args{limbfit_exe}, shell_quote( $args{query} ), $args{sum}, shell_quote( $args{outpath} );
+    $args{limbfit_exe}, _shell_quote( $args{query} ), $args{sum}, _shell_quote( $args{outpath} );
 }
 
-sub limbfit_argv (%args) {
+sub _limbfit_argv (%args) {
   return ( $args{limbfit_exe}, "dsinp=$args{query}", "sum=$args{sum}" );
 }
 
@@ -73,7 +60,7 @@ sub run_limbfit_to_file (%args) {
   open my $out_fh, '>', $args{outpath}
     or die "Cannot open '$args{outpath}' for writing: $!\n";
 
-  my @argv = limbfit_argv(%args);
+  my @argv = _limbfit_argv(%args);
 
   my $status;
   open my $saved_stdout, '>&', \*STDOUT
@@ -96,14 +83,13 @@ sub run_limbfit_to_file (%args) {
   return $status;
 }
 
-sub plot_path ($limb_path) {
+sub _plot_path ($limb_path) {
   ( my $plot = $limb_path ) =~ s/[.]limb$/.png/;
   return $plot;
 }
 
 sub plot_command (%args) {
-  return ( $args{plotter}, $args{limb_path}, '-o', plot_path( $args{limb_path} ),
-    '--perl', $args{perl} );
+  return ( $args{plotter}, $args{limb_path}, '-o', _plot_path( $args{limb_path} ) );
 }
 
 1;

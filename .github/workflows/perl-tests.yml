@@ -13,32 +13,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install Perl dependencies
+      - name: Install PDL
         run: |
           sudo apt-get update
-          sudo apt-get install -y cpanminus pdl
-
-      - name: Cache built PDL::Stats
-        id: cache-pdlstats
-        uses: actions/cache@v4
-        with:
-          path: ~/perl5
-          key: pdlstats-${{ runner.os }}-v1
-
-      - name: Build PDL::Stats
-        if: steps.cache-pdlstats.outputs.cache-hit != 'true'
-        run: cpanm --notest -l ~/perl5 PDL::Stats
-
-      - name: Add local PDL::Stats to PERL5LIB
-        run: |
-          echo "PERL5LIB=$HOME/perl5/lib/perl5:$PERL5LIB" >> "$GITHUB_ENV"
-          echo "PATH=$HOME/perl5/bin:$PATH" >> "$GITHUB_PATH"
+          sudo apt-get install -y pdl
 
       - name: Show dependency versions
         run: |
           perl -V:version
           perl -MPDL -e 'print "PDL $PDL::VERSION\n"'
-          perl -MPDL::Stats::Basic -e 'print "PDL::Stats::Basic ok\n"'
 
       - name: Run Perl tests
         run: prove -lv t

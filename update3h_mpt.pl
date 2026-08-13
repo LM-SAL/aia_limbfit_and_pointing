@@ -1,27 +1,15 @@
 #!/homef/nabil/perl5/perlbrew/perls/perl-5.42.0/bin/perl
 use v5.38;
 use Getopt::Long;
-use FindBin        qw($RealBin);
-use File::Basename qw(dirname);
+use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::DrmsRuntime qw(validate_drms_runtime show_info_lines);
+use AIALimbfit::DrmsRuntime qw(configure_drms_environment validate_drms_runtime show_info_lines);
 use AIALimbfit::Slot
   qw(iso8601 series_contains_time_query slot_bounds_from_masterpoint slot_record_issues tstr2ts);
 
 my $config_file = $ENV{AIA_LIMBFIT_CONFIG} // "$RealBin/config.pl";
 my $cfg         = do $config_file or die "Cannot load $config_file: " . ( $@ || $! );
-local $ENV{TZ}        = $cfg->{tz};
-local $ENV{SUMSERVER} = $ENV{SUMSERVER} // $cfg->{sumserver};
-my $drms_bin_dir = dirname( $cfg->{show_info} );
-my $drms_base    = dirname( dirname($drms_bin_dir) );
-local $ENV{DRMS_ROOT_DIR}           = $ENV{DRMS_ROOT_DIR}           // $drms_base;
-local $ENV{DRMS_INSTALL_DIR}        = $ENV{DRMS_INSTALL_DIR}        // $drms_base;
-local $ENV{DRMS_BINS_INSTALL_DIR}   = $ENV{DRMS_BINS_INSTALL_DIR}   // $drms_bin_dir;
-local $ENV{DRMS_LIBS_INSTALL_DIR}   = $ENV{DRMS_LIBS_INSTALL_DIR}   // "$drms_base/lib/linux_avx2";
-local $ENV{DRMS_INCS_INSTALL_DIR}   = $ENV{DRMS_INCS_INSTALL_DIR}   // "$drms_base/include";
-local $ENV{DRMS_PARAMS_INSTALL_DIR} = $ENV{DRMS_PARAMS_INSTALL_DIR} // "$drms_base/include/base";
-local $ENV{DRMS_SCRS_INSTALL_DIR}   = $ENV{DRMS_SCRS_INSTALL_DIR}   // "$drms_base/scripts";
-local $ENV{DRMS_SRC_INSTALL_DIR}    = $ENV{DRMS_SRC_INSTALL_DIR}    // "$drms_base/src";
+configure_drms_environment($cfg);
 
 my $mpre      = '^masterpoint_20';
 my $del       = 0;
