@@ -58,7 +58,7 @@ print {$cfg_fh} "  wl => [94], cadence_h => 3, nan_sentinel => 1234567,\n";
 print {$cfg_fh} "  tz => 'UTC', sumserver => 'test',\n";
 print {$cfg_fh} "  show_info => ", quote($show_info), ",\n";
 print {$cfg_fh} "  mpt_series => 'test.master_pointing3h',\n";
-print {$cfg_fh} "  lev1_series => 'aia.lev1_nrt2', lev1_nrt2_start => '2022-06-08T06:34:53Z',\n";
+print {$cfg_fh} "  lev1_series => 'aia.lev1_nrt2', lev1_nrt2_retention_days => 14,\n";
 print {$cfg_fh} "  fits_root => ",      quote($fits), ",\n";
 print {$cfg_fh} "  check_gaps_dir => ", quote($gaps), ",\n";
 print {$cfg_fh} "  perl_bin => ",       quote($^X),   ",\n";
@@ -92,6 +92,8 @@ like( $output, qr{TEMPORAL GAP.*00:00:00Z -> .*06:00:00Z}, 'uncovered slot is re
 like( $output, qr{Backfill slots: 1}, 'one repair slot is counted' );
 like( $output, qr{run_limbfit_ymdh[.]pl .*hour=3.*outroot=\Q$gaps/20260501_03/limb\E},
   'report prints isolated limb-fit command' );
+like( $output, qr{run_limbfit_ymdh[.]pl .*series=aia[.]lev1\b},
+  'historical repair uses the durable Level-1 series' );
 like( $output, qr{lf2mpr_nrt[.]pdl .*outdir=\Q$gaps/20260501_03/stage\E},
   'report prints reducer command' );
 like(

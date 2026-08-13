@@ -24,10 +24,10 @@ return {
   drms_src_install_dir    => '/homef/nabil/JSOC-orig/src',
 
   # DRMS series and query - NRT
-  lev1_series     => 'aia.lev1_nrt2',
-  lev1_nrt2_start => '2022-06-08T06:34:53Z',
-  mpt_series      => 'aia.master_pointing3h',
-  sdo_series      => 'sdo.master_pointing',
+  lev1_series              => 'aia.lev1_nrt2',
+  lev1_nrt2_retention_days => 14,
+  mpt_series               => 'aia.master_pointing3h',
+  sdo_series               => 'sdo.master_pointing',
 
   # Reject frames containing 99 or more missing pixels.
   drms_filter => q{[?MISSVALS<99?]},

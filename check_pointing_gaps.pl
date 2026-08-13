@@ -177,15 +177,14 @@ sub _bad_value ( $value, $sentinel ) {
 
 sub _print_backfill_commands ($slots) {
   return unless %{$slots};
-  my $perl      = $cfg->{perl_bin} // $^X;
-  my $nrt_start = $cfg->{lev1_nrt2_start} ? tstr2ts( $cfg->{lev1_nrt2_start} ) : undef;
+  my $perl       = $cfg->{perl_bin} // $^X;
+  my $nrt_cutoff = time - ( $cfg->{lev1_nrt2_retention_days} // 14 ) * 86_400;
   print "\n# Commands only; nothing above changed files or DRMS.\n";
   for my $epoch ( sort { $a <=> $b } keys %{$slots} ) {
     my ( $year, $month, $day, $hour ) = ts2ymdh($epoch);
     my $name   = sprintf '%04d%02d%02d_%02d', $year, $month, $day, $hour;
     my $root   = "$cfg->{check_gaps_dir}/$name";
-    my $source = $image_series
-      // ( defined $nrt_start && $epoch < $nrt_start ? 'aia.lev1' : $cfg->{lev1_series} );
+    my $source = $image_series // ( $epoch < $nrt_cutoff ? 'aia.lev1' : $cfg->{lev1_series} );
     print "\n# $year-$month-$day $hour:00 UTC\n";
     my @missing = sort { $a <=> $b } keys %{ $slots->{$epoch}{wavelengths} // {} };
     my $partial =

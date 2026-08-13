@@ -59,7 +59,8 @@ change DRMS.
   -end_year=2024 -end_month=6 -end_day=1
 ```
 
-Historical slots automatically use `aia.lev1`; override the image source only
+Slots older than the configured 14-day NRT retention window automatically use
+`aia.lev1`; recent slots use `aia.lev1_nrt2`. Override the image source only
 when needed:
 
 ```console
