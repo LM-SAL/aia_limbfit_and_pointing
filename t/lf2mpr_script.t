@@ -47,7 +47,21 @@ my $content = do { local $/; <$mp_fh> };
 close $mp_fh or die "Cannot close $masterpoint: $!";
 like( $content, qr/^KWD A_4500_X0\t10[.]000000$/m, 'sentinel row is excluded' );
 
+my $partial_out = "$tmp/partial";
+my $partial_cfg = "$tmp/partial.pl";
+config( $partial_cfg, $inp, $partial_out, 94, 4500 );
+local $ENV{AIA_LIMBFIT_CONFIG} = $partial_cfg;
+$output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 -wavel=4500 2>&1);
+is( $? >> 8, 0, 'explicit wavelength creates a partial repair' ) or diag $output;
+my $partial_masterpoint = "$partial_out/masterpoint_20260501_0130_3hcadence.txt";
+open my $partial_fh, '<', $partial_masterpoint or die "Cannot read $partial_masterpoint: $!";
+my $partial_content = do { local $/; <$partial_fh> };
+close $partial_fh or die "Cannot close $partial_masterpoint: $!";
+like( $partial_content, qr/^KWD A_4500_X0/m, 'partial repair contains requested wavelength' );
+unlike( $partial_content, qr/^KWD A_094_X0/m, 'partial repair omits other wavelengths' );
+
 unlink $limb or die "Cannot remove $limb: $!";
+local $ENV{AIA_LIMBFIT_CONFIG} = $cfg;
 $output = qx("$^X" "$repo/lf2mpr_nrt.pdl" -year=2026 -month=5 -day=1 -hour=0 2>&1);
 isnt( $? >> 8, 0, 'missing wavelength fails the whole slot' );
 like( $output, qr{Missing or empty limb files: 4500A}, 'missing wavelength is named' );

@@ -116,4 +116,13 @@ like( $output, qr{head -n 88 .*0094[.]limb}, 'first segment repair command is pr
 like( $output, qr{tail -n [+]89 .*0094[.]limb}, 'second segment repair command is printed' );
 ok( !-e $gaps, 'diagnosis remains read-only' );
 
+open my $usable_fh, '>', $split_path or die "Cannot replace $split_path: $!";
+print {$usable_fh} "10 20\n" for 1 .. 40;
+close $usable_fh or die "Cannot close $split_path: $!";
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);
+like( $output, qr{LIMB 94 A: usable}, 'existing usable limb is recognized' );
+like( $output, qr{lf2mpr_nrt[.]pdl .*inpdir=\Q$fits\E.*-wavel=94},
+  'usable wavelength gets a partial repair command' );
+unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'usable wavelength is not regenerated' );
+
 done_testing;

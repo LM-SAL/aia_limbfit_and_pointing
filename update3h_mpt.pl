@@ -114,9 +114,20 @@ while ( my $mpu = shift @files ) {
   }
   close $fh or die "Can't close '$src/$mpu': $!\n";
   die "No KWD values in '$src/$mpu'\n" unless %mpkv;
-  @kvsdo{ keys %mpkv } = values %mpkv;
 
   my $kv = _exact_record( $show_info, $series, $trec );
+  for my $w ( @{ $cfg->{wl} // [] } ) {
+    my ( $x, $y ) = map { exists $mpkv{ sprintf 'A_%.3d_%s0', $w, $_ } } qw(X Y);
+    die "Partial masterpoint '$mpu' has only one coordinate for ${w}A\n" if $x != $y;
+  }
+  my $partial = $cfg->{wl}
+    && grep { !exists $mpkv{ sprintf 'A_%.3d_X0', $_ } || !exists $mpkv{ sprintf 'A_%.3d_Y0', $_ } }
+    @{ $cfg->{wl} };
+  if ($partial) {
+    die "Partial masterpoint '$mpu' requires an existing record at $trec\n" unless $kv;
+    %kvsdo = ( %kvsdo, %{$kv} );
+  }
+  @kvsdo{ keys %mpkv } = values %mpkv;
 
   # Age guard: skip if the existing DRMS record is newer than the masterpoint file on disk.
   next if $kv && $kv->{DATE} gt iso8601($fmtim);

@@ -18,6 +18,7 @@ my ( $yr, $mo, $da, $hr );
 my $inpdir = $cfg->{fits_root};
 my $outdir = $cfg->{pointing_dir};
 my ( $previous, $next );
+my @requested_wavelengths;
 
 GetOptions(
   'year=i'                 => \$yr,
@@ -26,12 +27,21 @@ GetOptions(
   'hour=i'                 => \$hr,
   'inpdir=s'               => \$inpdir,
   'outdir=s'               => \$outdir,
+  'wavel=i@'               => \@requested_wavelengths,
   'interpolate-previous=s' => \$previous,
   'interpolate-next=s'     => \$next,
 ) or die "Invalid options\n";
 die "--year, --month, --day, and --hour are required\n"
   unless defined $yr && defined $mo && defined $da && defined $hr;
 validate_limbfit_args( year => $yr, month => $mo, day => $da, hour => $hr );
+validate_limbfit_args(
+  year        => $yr,
+  month       => $mo,
+  day         => $da,
+  hour        => $hr,
+  wavelength  => $_,
+  wavelengths => $cfg->{wl}
+) for @requested_wavelengths;
 die "Hour must be on the $cfg->{cadence_h}-hour cadence\n" if $hr % $cfg->{cadence_h};
 die "Input and output directories must not be empty\n"
   unless defined $inpdir && length($inpdir) && defined $outdir && length($outdir);
@@ -39,7 +49,8 @@ die "Interpolation requires both --interpolate-previous and --interpolate-next\n
   if defined($previous) != defined($next);
 
 umask 0002;
-my @wl      = @{ $cfg->{wl} };
+my %seen;
+my @wl = @requested_wavelengths ? grep { !$seen{$_}++ } @requested_wavelengths : @{ $cfg->{wl} };
 my $outbase = masterpoint_filename( $yr, $mo, $da, $hr, $cfg->{cadence_h} );
 my $outnam  = "$outdir/$outbase";
 my $slot    = sprintf '%04d-%02d-%02dT%02d:00:00Z', $yr, $mo, $da, $hr;
@@ -129,4 +140,6 @@ if ( !$written ) {
   unlink $temporary if -e $temporary;
   die $error;
 }
-warn "MASTERPOINT OK slot=$slot output=$outnam\n";
+my $partial_note =
+  @requested_wavelengths ? q{ partial=} . join( q{,}, map { $_ . q{A} } @wl ) : q{};
+warn q{MASTERPOINT OK slot=} . $slot . q{ output=} . $outnam . $partial_note . "\n";

@@ -85,6 +85,14 @@ the normal reducer only after deciding the regenerated limb fit is physically
 bad. It linearly interpolates every wavelength at the target time and refuses
 missing or non-finite endpoints; it never extrapolates.
 
+For a wavelength gap in an existing DRMS row, `lf2mpr_nrt.pdl -wavel=1700`
+creates a partial repair from that limb file alone. `update3h_mpt.pl` refuses a
+partial repair if the target row is absent; otherwise it preserves every other
+value from the existing row. Production does not pass `-wavel` and remains
+complete/all-or-fail. Repeat `-wavel` to repair several wavelengths together.
+The gap checker prints this shorter route when every missing wavelength already
+has a usable limb file.
+
 Newly published records provisionally span six hours. When the adjacent row is
 published, `update3h_mpt.pl` shortens the previous record to three hours. The gap
 checker therefore accepts a six-hour difference between consecutive `T_START`s

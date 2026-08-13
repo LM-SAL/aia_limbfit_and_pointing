@@ -150,6 +150,7 @@ for my $i ( 0 .. $#records ) {
     }
     else {
       printf "  LIMB %d A: usable (%.3f, %.3f); republish this slot\n", $w, $xavg, $yavg;
+      $backfill{ $pointing->{start} }{usable}{$w} = 1;
     }
   }
 }
@@ -186,19 +187,31 @@ sub _print_backfill_commands ($slots) {
     my $source = $image_series
       // ( defined $nrt_start && $epoch < $nrt_start ? 'aia.lev1' : $cfg->{lev1_series} );
     print "\n# $year-$month-$day $hour:00 UTC\n";
-    print "$perl $RealBin/run_limbfit_ymdh.pl -year=$year -month=$month -day=$day -hour=$hour",
-      " -series=$source -outroot=$root/limb\n";
-    for my $w ( sort { $a <=> $b } keys %{ $slots->{$epoch}{splits} // {} } ) {
-      my ( $row, $first_segment, $second_segment ) = @{ $slots->{$epoch}{splits}{$w} };
-      my $path = limb_path( "$root/limb", $year, $month, $day, $hour, $w );
-      print "$RealBin/plot_limb.py $path\n";
-      print
-"# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
-      print "head -n $row $path > $path.keep && mv $path.keep $path\n";
-      print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
+    my @missing = sort { $a <=> $b } keys %{ $slots->{$epoch}{wavelengths} // {} };
+    my $partial =
+        !$slots->{$epoch}{temporal}
+      && @missing
+      && @missing == keys %{ $slots->{$epoch}{usable} // {} };
+    if ($partial) {
+      print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
+        " -inpdir=$cfg->{fits_root} -outdir=$root/stage",
+        map( { " -wavel=$_" } @missing ), "\n";
     }
-    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-      " -inpdir=$root/limb -outdir=$root/stage\n";
+    else {
+      print "$perl $RealBin/run_limbfit_ymdh.pl -year=$year -month=$month -day=$day -hour=$hour",
+        " -series=$source -outroot=$root/limb\n";
+      for my $w ( sort { $a <=> $b } keys %{ $slots->{$epoch}{splits} // {} } ) {
+        my ( $row, $first_segment, $second_segment ) = @{ $slots->{$epoch}{splits}{$w} };
+        my $path = limb_path( "$root/limb", $year, $month, $day, $hour, $w );
+        print "$RealBin/plot_limb.py $path\n";
+        print
+"# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
+        print "head -n $row $path > $path.keep && mv $path.keep $path\n";
+        print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
+      }
+      print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
+        " -inpdir=$root/limb -outdir=$root/stage\n";
+    }
     if ( my $bounds = $slots->{$epoch}{interpolation} ) {
       print "# Fallback if the regenerated limb fit is physically bad:\n";
       print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",

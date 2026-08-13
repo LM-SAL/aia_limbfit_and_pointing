@@ -90,7 +90,12 @@ elsif ($query =~ /test[.]series/) {
     $record = $records{$exact};
   }
 
-  if ($scenario eq 'previous_version1' && $exact eq '2026-05-01T00:00:00Z') {
+  if ($scenario eq 'partial_version1' && $exact eq '2026-05-01T00:00:00Z') {
+    print "T_START\tT_STOP\tDATE\tVERSION\tA_171_X0\tA_171_Y0\tA_193_X0\tA_193_Y0\n";
+    print "$exact\t2026-05-01T03:00:00Z\t2026-05-01T00:00:00Z\t1\t0.50\t-0.75\t9.00\t10.00\n";
+  }
+
+  elsif ($scenario eq 'previous_version1' && $exact eq '2026-05-01T00:00:00Z') {
     print "T_START\tT_STOP\tDATE\tVERSION\tA_171_X0\tA_171_Y0\n";
     print "$exact\t2026-05-01T06:00:00Z\t2026-05-01T00:00:00Z\t1\t0.50\t-0.75\n";
   }
@@ -313,5 +318,32 @@ $exit   = $? >> 8;
 is( $exit, 0, 'off-grid dry run exits successfully' ) or diag $output;
 like( $output, qr/Skipping.*invalid slot/, 'off-grid masterpoint is skipped' );
 unlike( $output, qr/\bset_info\b/, 'off-grid masterpoint triggers no set_info' );
+
+# A partial repair is allowed only for an existing record and keeps all
+# unmentioned wavelength values when creating the next version.
+my $partial_config = "$tmp/partial_config.pl";
+open my $partial_cfg_fh, '>', $partial_config or die "Cannot write $partial_config: $!";
+print {$partial_cfg_fh} "use v5.38;\nreturn {\n";
+print {$partial_cfg_fh} "  tz => 'UTC', sumserver => 'test', cadence_h => 3, wl => [171, 193],\n";
+print {$partial_cfg_fh} "  show_info => ", perl_quote($show_info), ",\n";
+print {$partial_cfg_fh} "  set_info => ",  perl_quote($set_info),  ",\n";
+print {$partial_cfg_fh} "  mpt_series => 'test.series', sdo_series => 'sdo.master_pointing',\n";
+print {$partial_cfg_fh} "  pointing_dir => ", perl_quote($stage), ",\n};\n";
+close $partial_cfg_fh or die "Cannot close $partial_config: $!";
+
+local $ENV{AIA_LIMBFIT_CONFIG} = $partial_config;
+local $ENV{SHOW_INFO_SCENARIO} = 'partial_version1';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+is( $exit, 0, 'partial repair of an existing row succeeds' ) or diag $output;
+like( $output, qr/\bA_171_X0=1[.]25\b/, 'partial repair replaces the requested value' );
+like( $output, qr/\bA_193_X0=9[.]00\b/, 'partial repair preserves an unmentioned wavelength' );
+like( $output, qr/\bVERSION=2\b/, 'partial repair creates the next version' );
+
+local $ENV{SHOW_INFO_SCENARIO} = 'default';
+$output = `$^X "$repo/update3h_mpt.pl" -dry-run -srcdir "$stage" -series test.series 2>&1`;
+$exit   = $? >> 8;
+isnt( $exit, 0, 'partial repair cannot create a missing row' );
+like( $output, qr{requires an existing record}, 'missing-row refusal is explicit' );
 
 done_testing;
