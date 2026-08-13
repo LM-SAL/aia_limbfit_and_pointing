@@ -19,12 +19,12 @@ log and sends one failure email containing its tail.
 Runtime values live in `config.pl`. `config.csh` only bootstraps an interactive
 JSOC C-shell.
 
-The fitter targets data 22 hours behind the invocation time. Run it every three
-hours on the UTC hours that map to the 00/03/06/... data grid:
+The fitter targets data 22 hours behind the invocation time. The hourly cron is
+safe: the driver silently skips hours that do not map to the 00/03/06/... data
+grid, so cron email is reserved for real failures:
 
 ```cron
-CRON_TZ=UTC
-1 1-22/3 * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
+1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 ```
 
 Preview or run one slot:

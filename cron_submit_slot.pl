@@ -23,7 +23,7 @@ GetOptions(
   'dry-run' => \$dry_run,
 ) or die "Invalid options\n";
 validate_limbfit_args( year => $yr, month => $mo, day => $da, hour => $hr );
-die "Hour must be on the three-hour grid\n" if $hr % ( $cfg->{cadence_h} // 3 );
+exit 0 if $hr % ( $cfg->{cadence_h} // 3 );
 
 umask 0002;
 my $run       = sprintf '%d%.2d%.2d_%.2d', $yr, $mo, $da, $hr;

@@ -60,8 +60,8 @@ like( $output, qr{lf2mpr_nrt[.]pdl.*-outdir=\Q$tmp/stage/20260501_03\E}, 'cron p
 like( $output, qr{update3h_mpt[.]pl.*-delete}, 'cron prints publish step' );
 
 $output = qx("$^X" "$repo/cron_submit_slot.pl" -dry-run -year=2026 -month=5 -day=1 -hour=4 2>&1);
-isnt( $? >> 8, 0, 'off-grid cron slot is rejected' );
-like( $output, qr{Hour must be on the three-hour grid}, 'off-grid error is explicit' );
+is( $? >> 8, 0, 'off-grid cron invocation is a successful no-op' );
+is( $output, q{}, 'off-grid cron invocation is silent' );
 
 my $mixed = "$tmp/mixed_limbfit.pl";
 open my $mixed_fh, '>', $mixed or die "Cannot write $mixed: $!";
