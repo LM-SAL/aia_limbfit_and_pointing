@@ -32,6 +32,9 @@ my $scenario = $ENV{SHOW_INFO_SCENARIO} // 'no_gap';
 if ($scenario eq 'covered') {
   print "2026-05-01T00:00:00Z 2026-05-01T06:00:00Z 1 2\n";
   print "2026-05-01T06:00:00Z 2026-05-01T12:00:00Z 1 2\n";
+} elsif ($scenario eq 'covered_day') {
+  print "2026-03-06T00:00:00Z 2026-03-07T00:00:00Z 1 2\n";
+  print "2026-03-07T00:00:00Z 2026-03-08T00:00:00Z 1 2\n";
 } elsif ($scenario eq 'partly_covered_gap') {
   print "2026-05-01T00:00:00Z 2026-05-01T06:00:00Z 1 2\n";
   print "2026-05-01T09:00:00Z 2026-05-01T12:00:00Z 1 2\n";
@@ -79,6 +82,10 @@ ok( !-e $gaps, 'report creates no workspace' );
 local $ENV{SHOW_INFO_SCENARIO} = 'covered';
 $output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);
 like( $output, qr{No gaps detected}, 'six-hour record covers a six-hour start interval' );
+
+local $ENV{SHOW_INFO_SCENARIO} = 'covered_day';
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);
+like( $output, qr{No gaps detected}, '24-hour record covers a 24-hour start interval' );
 
 local $ENV{SHOW_INFO_SCENARIO} = 'partly_covered_gap';
 $output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);

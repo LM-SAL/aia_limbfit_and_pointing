@@ -96,8 +96,8 @@ has a usable limb file.
 
 Newly published records provisionally span six hours. When the adjacent row is
 published, `update3h_mpt.pl` shortens the previous record to three hours. The gap
-checker therefore accepts a six-hour difference between consecutive `T_START`s
-when the previous `T_STOP` reaches the later start.
+checker accepts any cadence-aligned covered block—including 6 or 24 hours—when
+the previous `T_STOP` reaches the later `T_START`.
 
 ## Split clusters
 

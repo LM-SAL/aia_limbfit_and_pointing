@@ -93,16 +93,18 @@ for my $i ( 1 .. $#records ) {
   my $previous_duration = $previous->{stop} - $previous->{start};
   next if $difference < $cadence_s + $epsilon;
   next
-    if abs( $difference - 2 * $cadence_s ) <= $epsilon
-    && abs( $previous_duration - 2 * $cadence_s ) <= $epsilon;
+    if $difference % $cadence_s <= $epsilon
+    && abs( $previous->{stop} - $current->{start} ) <= $epsilon;
 
   printf "TEMPORAL GAP  %s -> %s (%.2f h)\n",
     $previous->{t_start}, $current->{t_start}, $difference / 3600;
   $temporal++;
   if ( $difference % $cadence_s <= $epsilon ) {
     my $first_missing = $previous->{start} + $cadence_s;
-    $first_missing += $cadence_s
-      if abs( $previous_duration - 2 * $cadence_s ) <= $epsilon;
+    $first_missing = $previous->{stop}
+      if $previous_duration % $cadence_s <= $epsilon
+      && $previous->{stop} > $first_missing
+      && $previous->{stop} < $current->{start};
     for ( my $slot = $first_missing ; $slot < $current->{start} ; $slot += $cadence_s ) {
       $backfill{$slot}{temporal}      = 1;
       $backfill{$slot}{interpolation} = [ $previous->{t_start}, $current->{t_start} ];
