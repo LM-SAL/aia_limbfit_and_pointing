@@ -126,6 +126,29 @@ Replace only the copy in the isolated backfill workspace. Production limb files
 are not edited by the report. The reducer will not emit a partial or NaN
 masterpoint.
 
+With the limb file trimmed to one segment, reduce it, inspect the dry run, then
+publish:
+
+```console
+./lf2mpr_nrt.pdl -year=2026 -month=3 -day=26 -hour=18 \
+  -inpdir=/surge40/nabil/LimbFit_c/gaps/20260326_18/limb \
+  -outdir=/surge40/nabil/LimbFit_c/gaps/20260326_18/stage
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/20260326_18/stage -dry-run
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/20260326_18/stage
+```
+
+If only one wavelength split and the DRMS row already exists, repair just that
+wavelength with `-wavel`. With a production limb file, `-inpdir` is the
+`fits_root` and the reducer builds the dated path itself:
+
+```console
+./lf2mpr_nrt.pdl -year=2026 -month=8 -day=20 -hour=9 -wavel=1600 \
+  -inpdir=/surge40/nabil/LimbFit_c/fits_nrt \
+  -outdir=/surge40/nabil/LimbFit_c/gaps/20260820_09/stage
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/20260820_09/stage -dry-run
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/20260820_09/stage
+```
+
 Two calibration values remain in `config.pl` because real sensor data varies:
 minimum useful segment size and required center-separation/scatter ratio.
 
