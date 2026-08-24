@@ -2,10 +2,12 @@
 use v5.38;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::DrmsRuntime qw(configure_drms_environment validate_drms_runtime show_info_lines);
-use AIALimbfit::Inventory   qw(limb_path);
-use AIALimbfit::Reducer     qw(reduce_limb_points);
-use AIALimbfit::Slot        qw(tstr2ts ts2ymdh);
+use AIALimbfit::DrmsRuntime
+  qw(configure_drms_environment validate_drms_runtime show_info_count show_info_lines);
+use AIALimbfit::Inventory      qw(limb_path);
+use AIALimbfit::LimbfitCommand qw(limbfit_query);
+use AIALimbfit::Reducer        qw(reduce_limb_points);
+use AIALimbfit::Slot           qw(tstr2ts ts2ymdh);
 use Getopt::Long;
 use PDL::IO::Misc;
 use Scalar::Util qw(looks_like_number);
@@ -197,12 +199,15 @@ sub _print_slot_commands ( $epoch, $slot ) {
 sub _slot_commands ( $epoch, $slot ) {
   open my $fh, '>', \my $text or die "Cannot open string buffer: $!\n";
   local *STDOUT = $fh;
-  my $perl       = $cfg->{perl_bin} // $^X;
   my $nrt_cutoff = time - ( $cfg->{lev1_nrt2_retention_days} // 14 ) * 86_400;
   my ( $year, $month, $day, $hour ) = ts2ymdh($epoch);
-  my $name   = sprintf '%04d%02d%02d_%02d', $year, $month, $day, $hour;
-  my $root   = "$cfg->{check_gaps_dir}/$name";
-  my $source = $image_series // ( $epoch < $nrt_cutoff ? 'aia.lev1' : $cfg->{lev1_series} );
+  my %c = (
+    perl   => $cfg->{perl_bin} // $^X,
+    root   => sprintf( '%s/%04d%02d%02d_%02d', $cfg->{check_gaps_dir}, $year, $month, $day, $hour ),
+    source => $image_series // ( $epoch < $nrt_cutoff ? 'aia.lev1' : $cfg->{lev1_series} ),
+    ymdh   => "-year=$year -month=$month -day=$day -hour=$hour",
+    ymdh_list => [ $year, $month, $day, $hour ],
+  );
   print "\n# $year-$month-$day $hour:00 UTC\n";
   my @missing = sort { $a <=> $b } keys %{ $slot->{wavelengths} // {} };
   my $partial =
@@ -210,36 +215,89 @@ sub _slot_commands ( $epoch, $slot ) {
     && @missing
     && @missing == keys %{ $slot->{usable} // {} };
 
+  my $no_data = 0;
   if ($partial) {
-    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-      " -inpdir=$cfg->{fits_root} -outdir=$root/stage",
+    print "$c{perl} $RealBin/lf2mpr_nrt.pdl $c{ymdh}",
+      " -inpdir=$cfg->{fits_root} -outdir=$c{root}/stage",
       map( { " -wavel=$_" } @missing ), "\n";
   }
   else {
-    print "$perl $RealBin/run_limbfit_ymdh.pl -year=$year -month=$month -day=$day -hour=$hour",
-      " -series=$source -outroot=$root/limb\n";
-    for my $w ( sort { $a <=> $b } keys %{ $slot->{splits} // {} } ) {
-      my ( $row, $first_segment, $second_segment ) = @{ $slot->{splits}{$w} };
-      my $path = limb_path( "$root/limb", $year, $month, $day, $hour, $w );
-      print "$RealBin/plot_limb.py $path\n";
-      print
-"# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
-      print "head -n $row $path > $path.keep && mv $path.keep $path\n";
-      print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
-    }
-    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-      " -inpdir=$root/limb -outdir=$root/stage\n";
+    $no_data = !_print_refit_commands( \%c, $slot, \@missing );
   }
-  if ( my $bounds = $slot->{interpolation} ) {
-    print "# Fallback if the regenerated limb fit is physically bad:\n";
-    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-      " -outdir=$root/stage -interpolate-previous=$bounds->[0] -interpolate-next=$bounds->[1]\n";
+  _print_publish_commands( \%c, $slot->{interpolation}, $no_data );
+  close $fh or die "Cannot close string buffer: $!\n";
+  return $text;
+}
+
+# Prints the re-fit sequence; returns the number of wavelengths with Level-1 data to fit.
+sub _print_refit_commands ( $c, $slot, $missing ) {
+  my @fit = $slot->{temporal} ? @wl : grep { !$slot->{usable}{$_} } @{$missing};
+  my @fittable;
+  for my $w (@fit) {
+    my $reason = _lev1_unavailable( $c->{source}, @{ $c->{ymdh_list} }, $w );
+    if   ($reason) { print "# LEV1 $w A: $reason\n" }
+    else           { push @fittable, $w }
+  }
+  return 0 unless @fittable;
+
+  print "$c->{perl} $RealBin/run_limbfit_ymdh.pl $c->{ymdh}",
+    " -series=$c->{source} -outroot=$c->{root}/limb\n";
+  for my $w ( sort { $a <=> $b } keys %{ $slot->{splits} // {} } ) {
+    my ( $row, $first_segment, $second_segment ) = @{ $slot->{splits}{$w} };
+    my $path = limb_path( "$c->{root}/limb", @{ $c->{ymdh_list} }, $w );
+    print "$RealBin/plot_limb.py $path\n";
+    print
+      "# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
+    print "head -n $row $path > $path.keep && mv $path.keep $path\n";
+    print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
+  }
+  print "$c->{perl} $RealBin/lf2mpr_nrt.pdl $c->{ymdh}",
+    " -inpdir=$c->{root}/limb -outdir=$c->{root}/stage\n";
+  return scalar @fittable;
+}
+
+sub _print_publish_commands ( $c, $bounds, $no_data ) {
+  if ( $no_data && !$bounds ) {
+    print "# No $c->{source} data and no bracketing records: nothing can be published.\n";
+    return;
+  }
+  if ($bounds) {
+    my $note =
+      $no_data
+      ? "No $c->{source} data; interpolate from the bracketing records:"
+      : 'Fallback if the regenerated limb fit is physically bad:';
+    print "# $note\n";
+    print "$c->{perl} $RealBin/lf2mpr_nrt.pdl $c->{ymdh}",
+" -outdir=$c->{root}/stage -interpolate-previous=$bounds->[0] -interpolate-next=$bounds->[1]\n";
   }
   else {
     print "# No interpolation fallback: both bracketing pointing records are required.\n";
   }
-  print "$perl $RealBin/update3h_mpt.pl -srcdir=$root/stage -dry-run\n";
-  print "$perl $RealBin/update3h_mpt.pl -srcdir=$root/stage\n";
-  close $fh or die "Cannot close string buffer: $!\n";
-  return $text;
+  print "$c->{perl} $RealBin/update3h_mpt.pl -srcdir=$c->{root}/stage -dry-run\n";
+  print "$c->{perl} $RealBin/update3h_mpt.pl -srcdir=$c->{root}/stage\n";
+  return;
+}
+
+# Returns a reason string when run_limbfit_ymdh.pl would skip this wavelength, else undef.
+sub _lev1_unavailable ( $source, $year, $month, $day, $hour, $w ) {
+  my %args = (
+    series     => $source,
+    year       => $year,
+    month      => $month,
+    day        => $day,
+    hour       => $hour,
+    duration   => ( $cfg->{cadence_h} // 3 ) . 'h',
+    wavelength => $w,
+  );
+  my $filter  = $cfg->{drms_filter}         // q{};
+  my $quality = $cfg->{drms_quality_filter} // q{};
+  return
+    if show_info_count( $cfg->{show_info}, limbfit_query( %args, filter => $filter . $quality ) );
+  my $source_count =
+    length $quality
+    ? show_info_count( $cfg->{show_info}, limbfit_query( %args, filter => $filter ) )
+    : 0;
+  return $source_count
+    ? "all $source_count $source records rejected by data-quality filter"
+    : "no $source records";
 }

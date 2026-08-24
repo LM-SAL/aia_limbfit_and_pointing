@@ -4,7 +4,7 @@ use v5.38;
 use Exporter qw(import);
 use File::Basename qw(dirname);
 
-our @EXPORT_OK = qw(configure_drms_environment validate_drms_runtime show_info_lines);
+our @EXPORT_OK = qw(configure_drms_environment validate_drms_runtime show_info_count show_info_lines);
 
 sub configure_drms_environment ($cfg) {
   my $root = $cfg->{drms_root_dir};
@@ -46,6 +46,14 @@ sub show_info_lines ( $show_info, @args ) {
   my @lines = <$fh>;
   close $fh or die "show_info failed (@args): exit=$?\n";
   return @lines;
+}
+
+sub show_info_count ( $show_info, $query ) {
+  my @lines = show_info_lines( $show_info, '-cq', $query );
+  chomp @lines;
+  my ($count) = grep { /^\d+$/ } @lines;
+  die "Unexpected show_info count for $query\n" unless defined $count;
+  return 0 + $count;
 }
 
 1;

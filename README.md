@@ -104,6 +104,14 @@ done
 The gap checker reads only DRMS, never the workspace, so rerunning it afterwards
 lists exactly the slots still unpublished.
 
+Before proposing a re-fit, the report counts Level-1 records for each wavelength
+that needs one, using the same series, `MISSVALS`, and `QUALITY` filters as
+`run_limbfit_ymdh.pl`. A wavelength with nothing to fit is flagged as
+`# LEV1 94 A: no aia.lev1 records` (or `... rejected by data-quality filter`);
+when no wavelength can be fitted, the re-fit commands are omitted and only the
+interpolation fallback and publish commands remain (or a note that nothing can
+be published when the bracketing records are also absent).
+
 If both bracketing pointing records exist, the report also prints an explicit
 `-interpolate-previous=... -interpolate-next=...` fallback. Use it instead of
 the normal reducer only after deciding the regenerated limb fit is physically

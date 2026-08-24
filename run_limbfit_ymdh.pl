@@ -2,7 +2,7 @@
 use v5.38;
 use FindBin qw($RealBin);
 use lib "$RealBin/lib";
-use AIALimbfit::DrmsRuntime qw(configure_drms_environment show_info_lines);
+use AIALimbfit::DrmsRuntime qw(configure_drms_environment show_info_count);
 use AIALimbfit::Inventory   qw(limb_path);
 use AIALimbfit::LimbfitCommand
   qw(limbfit_command limbfit_query plot_command run_limbfit_to_file validate_limbfit_args wavelength_sum);
@@ -51,14 +51,6 @@ sub _status_text ($status) {
   return 'exit ' . ( $status >> 8 );
 }
 
-sub _record_count ($query) {
-  my @lines = show_info_lines( $show_info, '-cq', $query );
-  chomp @lines;
-  my ($count) = grep { /^\d+$/ } @lines;
-  die "Unexpected show_info count for $query\n" unless defined $count;
-  return 0 + $count;
-}
-
 my $outdir = dirname( limb_path( $outroot, $yr, $mo, $da, $hr, $wavelength // $cfg->{wl}[0] ) );
 make_path( $outdir, { chmod => oct('755') } ) if !$dry_run && !-d $outdir;
 
@@ -98,8 +90,8 @@ for my $w (@wavelengths) {
     next;
   }
 
-  if ( length $quality_filt && _record_count($qs) == 0 ) {
-    my $source_count = _record_count($source_qs);
+  if ( length $quality_filt && show_info_count( $show_info, $qs ) == 0 ) {
+    my $source_count = show_info_count( $show_info, $source_qs );
     my $reason =
       $source_count
       ? "all $source_count source records rejected by data-quality filter"

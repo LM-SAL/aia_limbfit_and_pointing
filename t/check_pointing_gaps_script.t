@@ -29,6 +29,10 @@ if ($ENV{SHOW_INFO_LOG}) {
   close $fh;
 }
 my $scenario = $ENV{SHOW_INFO_SCENARIO} // 'no_gap';
+if (grep { $_ eq '-cq' } @ARGV) {
+  print(($ENV{SHOW_INFO_LEV1_COUNT} // 1), "\n");
+  exit 0;
+}
 if ($scenario eq 'covered') {
   print "2026-05-01T00:00:00Z 2026-05-01T06:00:00Z 1 2\n";
   print "2026-05-01T06:00:00Z 2026-05-01T12:00:00Z 1 2\n";
@@ -109,6 +113,18 @@ like(
   'report prints the bracketing interpolation fallback'
 );
 unlike( $output, qr{PIPELINE START|LIMBFIT START}, 'report executes no repair command' );
+unlike( $output, qr{LEV1 94 A}, 'available Level-1 data prints no warning' );
+
+{
+  local $ENV{SHOW_INFO_LEV1_COUNT} = 0;
+  $output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);
+  like( $output, qr{# LEV1 94 A: no aia[.]lev1 records}, 'missing Level-1 data is reported' );
+  like( $output, qr{# No aia[.]lev1 data; interpolate}, 'unfittable slot points at the fallback' );
+  unlike( $output, qr{run_limbfit_ymdh[.]pl|physically bad|inpdir=},
+    'unfittable slot gets no limb-fit or reducer command' );
+  like( $output, qr{interpolate-previous=.*\n.*update3h_mpt[.]pl .*-dry-run\n.*update3h_mpt[.]pl .*stage\n},
+    'unfittable slot keeps the fallback and publish commands' );
+}
 
 local $ENV{SHOW_INFO_SCENARIO} = 'wavelength';
 $output = qx("$^X" "$repo/check_pointing_gaps.pl" $args 2>&1);
