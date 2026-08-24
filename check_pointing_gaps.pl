@@ -16,8 +16,9 @@ configure_drms_environment($cfg);
 
 my $series       = $cfg->{mpt_series};
 my $image_series = undef;
-my $cadence_s    = ( $cfg->{cadence_h} // 3 ) * 3600;
-my @wl           = @{ $cfg->{wl} };
+my $commands_path;
+my $cadence_s = ( $cfg->{cadence_h} // 3 ) * 3600;
+my @wl        = @{ $cfg->{wl} };
 my ( $yr, $mo, $da, $eyr, $emo, $eda );
 my ( $start_explicit, $end_explicit ) = ( 0, 0 );
 
@@ -30,6 +31,7 @@ GetOptions(
   'end_day=i'      => sub { $eda = $_[1]; $end_explicit   = 1 },
   'series=s'       => \$series,
   'image-series=s' => \$image_series,
+  'commands=s'     => \$commands_path,
 ) or die "Invalid options\n";
 
 my ( undef, undef, undef, undef, $today_m, $today_y ) = gmtime time;
@@ -41,7 +43,7 @@ if ($start_explicit) {
   $da //= 1;
 }
 else {
-  ( $yr, $mo, $da ) = ( 2010, 11, 1 );
+  ( $yr, $mo, $da ) = ( 2010, 5, 13 );    # first aia.lev1 record
 }
 if ($end_explicit) {
   $eyr //= $today_y;
@@ -57,6 +59,13 @@ else {
 }
 
 validate_drms_runtime( $cfg->{show_info} );
+print
+  "# Read-only report; the commands printed under each slot change nothing until you run them.\n";
+my $commands_fh;
+if ($commands_path) {
+  open $commands_fh, '>', $commands_path or die "Cannot write $commands_path: $!\n";
+  print {$commands_fh} "# Commands only; nothing here has changed files or DRMS.\n";
+}
 my @keys = qw(T_START T_STOP);
 for my $w (@wl) {
   push @keys, sprintf 'A_%.3d_X0', $w;
@@ -108,6 +117,7 @@ for my $i ( 1 .. $#records ) {
     for ( my $slot = $first_missing ; $slot < $current->{start} ; $slot += $cadence_s ) {
       $backfill{$slot}{temporal}      = 1;
       $backfill{$slot}{interpolation} = [ $previous->{t_start}, $current->{t_start} ];
+      _print_slot_commands( $slot, $backfill{$slot} );
     }
   }
   else {
@@ -155,6 +165,7 @@ for my $i ( 0 .. $#records ) {
       $backfill{ $pointing->{start} }{usable}{$w} = 1;
     }
   }
+  _print_slot_commands( $pointing->{start}, $backfill{ $pointing->{start} } );
 }
 
 if ( !$temporal && !$wavelength_gaps ) {
@@ -164,7 +175,6 @@ if ( !$temporal && !$wavelength_gaps ) {
 
 print "---\nTemporal gaps: $temporal\nWavelength gaps: $wavelength_gaps\n";
 print "Backfill slots: ", scalar keys %backfill, "\n" if %backfill;
-_print_backfill_commands( \%backfill );
 
 sub _bad_value ( $value, $sentinel ) {
   return 1 unless defined $value && length $value;
@@ -177,51 +187,59 @@ sub _bad_value ( $value, $sentinel ) {
     && 0 + $value == 0 + $sentinel;
 }
 
-sub _print_backfill_commands ($slots) {
-  return unless %{$slots};
+sub _print_slot_commands ( $epoch, $slot ) {
+  my $text = _slot_commands( $epoch, $slot );
+  print $text;
+  print {$commands_fh} $text if $commands_fh;
+  return;
+}
+
+sub _slot_commands ( $epoch, $slot ) {
+  open my $fh, '>', \my $text or die "Cannot open string buffer: $!\n";
+  local *STDOUT = $fh;
   my $perl       = $cfg->{perl_bin} // $^X;
   my $nrt_cutoff = time - ( $cfg->{lev1_nrt2_retention_days} // 14 ) * 86_400;
-  print "\n# Commands only; nothing above changed files or DRMS.\n";
-  for my $epoch ( sort { $a <=> $b } keys %{$slots} ) {
-    my ( $year, $month, $day, $hour ) = ts2ymdh($epoch);
-    my $name   = sprintf '%04d%02d%02d_%02d', $year, $month, $day, $hour;
-    my $root   = "$cfg->{check_gaps_dir}/$name";
-    my $source = $image_series // ( $epoch < $nrt_cutoff ? 'aia.lev1' : $cfg->{lev1_series} );
-    print "\n# $year-$month-$day $hour:00 UTC\n";
-    my @missing = sort { $a <=> $b } keys %{ $slots->{$epoch}{wavelengths} // {} };
-    my $partial =
-        !$slots->{$epoch}{temporal}
-      && @missing
-      && @missing == keys %{ $slots->{$epoch}{usable} // {} };
-    if ($partial) {
-      print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-        " -inpdir=$cfg->{fits_root} -outdir=$root/stage",
-        map( { " -wavel=$_" } @missing ), "\n";
-    }
-    else {
-      print "$perl $RealBin/run_limbfit_ymdh.pl -year=$year -month=$month -day=$day -hour=$hour",
-        " -series=$source -outroot=$root/limb\n";
-      for my $w ( sort { $a <=> $b } keys %{ $slots->{$epoch}{splits} // {} } ) {
-        my ( $row, $first_segment, $second_segment ) = @{ $slots->{$epoch}{splits}{$w} };
-        my $path = limb_path( "$root/limb", $year, $month, $day, $hour, $w );
-        print "$RealBin/plot_limb.py $path\n";
-        print
-"# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
-        print "head -n $row $path > $path.keep && mv $path.keep $path\n";
-        print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
-      }
-      print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-        " -inpdir=$root/limb -outdir=$root/stage\n";
-    }
-    if ( my $bounds = $slots->{$epoch}{interpolation} ) {
-      print "# Fallback if the regenerated limb fit is physically bad:\n";
-      print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
-        " -outdir=$root/stage -interpolate-previous=$bounds->[0] -interpolate-next=$bounds->[1]\n";
-    }
-    else {
-      print "# No interpolation fallback: both bracketing pointing records are required.\n";
-    }
-    print "$perl $RealBin/update3h_mpt.pl -srcdir=$root/stage -dry-run\n";
+  my ( $year, $month, $day, $hour ) = ts2ymdh($epoch);
+  my $name   = sprintf '%04d%02d%02d_%02d', $year, $month, $day, $hour;
+  my $root   = "$cfg->{check_gaps_dir}/$name";
+  my $source = $image_series // ( $epoch < $nrt_cutoff ? 'aia.lev1' : $cfg->{lev1_series} );
+  print "\n# $year-$month-$day $hour:00 UTC\n";
+  my @missing = sort { $a <=> $b } keys %{ $slot->{wavelengths} // {} };
+  my $partial =
+      !$slot->{temporal}
+    && @missing
+    && @missing == keys %{ $slot->{usable} // {} };
+
+  if ($partial) {
+    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
+      " -inpdir=$cfg->{fits_root} -outdir=$root/stage",
+      map( { " -wavel=$_" } @missing ), "\n";
   }
-  return;
+  else {
+    print "$perl $RealBin/run_limbfit_ymdh.pl -year=$year -month=$month -day=$day -hour=$hour",
+      " -series=$source -outroot=$root/limb\n";
+    for my $w ( sort { $a <=> $b } keys %{ $slot->{splits} // {} } ) {
+      my ( $row, $first_segment, $second_segment ) = @{ $slot->{splits}{$w} };
+      my $path = limb_path( "$root/limb", $year, $month, $day, $hour, $w );
+      print "$RealBin/plot_limb.py $path\n";
+      print
+"# Choose the physical segment ($first_segment or $second_segment rows), then run ONE of:\n";
+      print "head -n $row $path > $path.keep && mv $path.keep $path\n";
+      print 'tail -n +', $row + 1, " $path > $path.keep && mv $path.keep $path\n";
+    }
+    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
+      " -inpdir=$root/limb -outdir=$root/stage\n";
+  }
+  if ( my $bounds = $slot->{interpolation} ) {
+    print "# Fallback if the regenerated limb fit is physically bad:\n";
+    print "$perl $RealBin/lf2mpr_nrt.pdl -year=$year -month=$month -day=$day -hour=$hour",
+      " -outdir=$root/stage -interpolate-previous=$bounds->[0] -interpolate-next=$bounds->[1]\n";
+  }
+  else {
+    print "# No interpolation fallback: both bracketing pointing records are required.\n";
+  }
+  print "$perl $RealBin/update3h_mpt.pl -srcdir=$root/stage -dry-run\n";
+  print "$perl $RealBin/update3h_mpt.pl -srcdir=$root/stage\n";
+  close $fh or die "Cannot close string buffer: $!\n";
+  return $text;
 }

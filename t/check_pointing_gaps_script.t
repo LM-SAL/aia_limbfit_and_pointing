@@ -134,4 +134,14 @@ like( $output, qr{lf2mpr_nrt[.]pdl .*inpdir=\Q$fits\E.*-wavel=94},
   'usable wavelength gets a partial repair command' );
 unlike( $output, qr{run_limbfit_ymdh[.]pl}, 'usable wavelength is not regenerated' );
 
+my $commands = "$tmp/commands.sh";
+$output = qx("$^X" "$repo/check_pointing_gaps.pl" $args -commands="$commands" 2>&1);
+like( $output, qr{LIMB 94 A: usable}, 'report still goes to stdout with -commands' );
+open my $commands_fh, '<', $commands or die "Cannot read $commands: $!";
+my $commands_text = do { local $/; <$commands_fh> };
+close $commands_fh;
+like( $commands_text, qr{lf2mpr_nrt[.]pdl .*-wavel=94}, 'commands file holds the repair command' );
+like( $commands_text, qr{update3h_mpt[.]pl .*stage\n}, 'commands file holds the publish command' );
+unlike( $commands_text, qr{MISSING WAVELENGTHS|LIMB 94}, 'commands file holds no diagnostics' );
+
 done_testing;

@@ -49,7 +49,7 @@ prints isolated commands for each affected slot. It does not create files or
 change DRMS.
 
 ```console
-# Mission report through seven days ago
+# Mission report (2010-05-13, first aia.lev1 record) through seven days ago
 ./check_pointing_gaps.pl
 
 # One day or range
@@ -67,7 +67,14 @@ when needed:
 ./check_pointing_gaps.pl -year=2024 -month=3 -day=1 -image-series=aia.lev1
 ```
 
-The report prints a per-slot sequence equivalent to:
+Commands print under each slot in the report; `-commands=FILE` also writes just
+the commands to a runnable file:
+
+```console
+./check_pointing_gaps.pl > gaps-report.txt -commands=gaps-commands.sh
+```
+
+Under each slot the report prints a sequence equivalent to:
 
 ```console
 ./run_limbfit_ymdh.pl ... -outroot=/surge40/nabil/LimbFit_c/gaps/SLOT/limb
@@ -75,10 +82,27 @@ The report prints a per-slot sequence equivalent to:
   -inpdir=/surge40/nabil/LimbFit_c/gaps/SLOT/limb \
   -outdir=/surge40/nabil/LimbFit_c/gaps/SLOT/stage
 ./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/SLOT/stage -dry-run
+./update3h_mpt.pl -srcdir=/surge40/nabil/LimbFit_c/gaps/SLOT/stage
 ```
 
 Inspect the limb files, diagnostic plots, reducer output, and publication dry
-run. Publish only by rerunning the final command without `-dry-run`.
+run before running the final line, which publishes to DRMS.
+
+To publish every staged slot at once, loop over the workspace; `update3h_mpt.pl`
+skips empty stage directories and slots whose DRMS record is already newer than
+the staged file, so the loop is safe to repeat:
+
+```console
+for d in /surge40/nabil/LimbFit_c/gaps/*/stage; do
+  ./update3h_mpt.pl -srcdir="$d" -dry-run
+done
+for d in /surge40/nabil/LimbFit_c/gaps/*/stage; do
+  ./update3h_mpt.pl -srcdir="$d"
+done
+```
+
+The gap checker reads only DRMS, never the workspace, so rerunning it afterwards
+lists exactly the slots still unpublished.
 
 If both bracketing pointing records exist, the report also prints an explicit
 `-interpolate-previous=... -interpolate-next=...` fallback. Use it instead of
