@@ -27,6 +27,19 @@ grid, so cron email is reserved for real failures:
 1 * * * * /homef/nabil/Git/aia_limbfit_and_pointing/cron_submit_slot.pl
 ```
 
+A dead cron sends no failure email, so an independent, read-only check watches
+the table itself. `check_pointing_freshness.pl` stays silent while the newest
+`DATE` (publication time) is younger than 24 hours and the last seven days have
+no coverage gaps; otherwise it emails `mail_to` with the newest record, any
+recent gaps, and the DRMS query. Gaps use the same coverage rule as the backfill
+report, so provisional six-hour records still hide single missed slots. Run it
+once a day, clear of the hourly pipeline; tune it with `-grace-hours=N` and
+`-gap-days=N`:
+
+```cron
+17 12 * * * /homef/nabil/Git/aia_limbfit_and_pointing/check_pointing_freshness.pl
+```
+
 Preview or run one slot:
 
 ```console
